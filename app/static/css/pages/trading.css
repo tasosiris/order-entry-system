@@ -1,0 +1,253 @@
+/* 
+ * Trading Interface Styles
+ *
+ * This stylesheet contains styles specific to the trading interface,
+ * including order book visualization, trade history, and order entry forms.
+ */
+
+/* Order Book */
+.order-book {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--spacing-md);
+    font-size: var(--text-sm);
+}
+
+.order-book-side {
+    background-color: var(--bg-secondary);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-md);
+}
+
+.order-book-header {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    font-weight: 600;
+    padding-bottom: var(--spacing-sm);
+    border-bottom: 1px solid var(--border-color);
+    margin-bottom: var(--spacing-sm);
+}
+
+.order-book-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    padding: var(--spacing-xs) 0;
+    cursor: pointer;
+    transition: background-color var(--transition-fast);
+}
+
+.order-book-row:hover {
+    background-color: var(--bg-primary);
+}
+
+.order-book-price {
+    text-align: right;
+}
+
+.order-book-quantity {
+    text-align: right;
+}
+
+.order-book-total {
+    text-align: right;
+}
+
+/* Bid/Ask Colors */
+.bid-price {
+    color: var(--success-color);
+}
+
+.ask-price {
+    color: var(--danger-color);
+}
+
+/* Trade History */
+.trade-history {
+    background-color: var(--bg-secondary);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-md);
+    margin-top: var(--spacing-md);
+}
+
+.trade-history-header {
+    display: grid;
+    grid-template-columns: auto 1fr 1fr 1fr;
+    gap: var(--spacing-md);
+    font-weight: 600;
+    padding-bottom: var(--spacing-sm);
+    border-bottom: 1px solid var(--border-color);
+    margin-bottom: var(--spacing-sm);
+}
+
+.trade-row {
+    display: grid;
+    grid-template-columns: auto 1fr 1fr 1fr;
+    gap: var(--spacing-md);
+    padding: var(--spacing-xs) 0;
+    font-size: var(--text-sm);
+}
+
+.trade-time {
+    color: var(--text-secondary);
+}
+
+.trade-price {
+    text-align: right;
+}
+
+.trade-quantity {
+    text-align: right;
+}
+
+.trade-side {
+    text-align: center;
+}
+
+/* Order Entry Form */
+.order-entry {
+    background-color: var(--bg-secondary);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-md);
+    margin-top: var(--spacing-md);
+}
+
+.order-type-tabs {
+    display: flex;
+    gap: var(--spacing-sm);
+    margin-bottom: var(--spacing-md);
+}
+
+.order-type-tab {
+    padding: var(--spacing-sm) var(--spacing-md);
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    transition: all var(--transition-fast);
+}
+
+.order-type-tab.active {
+    background-color: var(--primary-color);
+    color: var(--text-light);
+}
+
+.order-form {
+    display: grid;
+    gap: var(--spacing-md);
+}
+
+.order-form-row {
+    display: grid;
+    grid-template-columns: 1fr 2fr;
+    gap: var(--spacing-md);
+    align-items: center;
+}
+
+.order-form label {
+    font-weight: 500;
+}
+
+/* Order Buttons */
+.buy-button {
+    background-color: var(--success-color);
+    color: var(--text-light);
+}
+
+.buy-button:hover {
+    background-color: color-mix(in srgb, var(--success-color) 80%, black);
+}
+
+.sell-button {
+    background-color: var(--danger-color);
+    color: var(--text-light);
+}
+
+.sell-button:hover {
+    background-color: color-mix(in srgb, var(--danger-color) 80%, black);
+}
+
+/* Position Summary */
+.position-summary {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: var(--spacing-md);
+    margin-top: var(--spacing-md);
+}
+
+.position-card {
+    background-color: var(--bg-secondary);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-md);
+}
+
+.position-card h3 {
+    font-size: var(--text-lg);
+    margin-bottom: var(--spacing-sm);
+}
+
+.position-detail {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: var(--spacing-xs);
+}
+
+.position-label {
+    color: var(--text-secondary);
+}
+
+.position-value {
+    font-weight: 500;
+}
+
+/* Dark Pool Indicator */
+.dark-pool-indicator {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--spacing-xs);
+    padding: var(--spacing-xs) var(--spacing-sm);
+    background-color: var(--bg-dark);
+    color: var(--text-light);
+    border-radius: var(--radius-sm);
+    font-size: var(--text-xs);
+}
+
+/* System Status */
+.system-status {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    font-size: var(--text-sm);
+}
+
+.status-indicator {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+}
+
+.status-online {
+    background-color: var(--success-color);
+}
+
+.status-offline {
+    background-color: var(--danger-color);
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+    .order-book {
+        grid-template-columns: 1fr;
+    }
+    
+    .order-form-row {
+        grid-template-columns: 1fr;
+        gap: var(--spacing-xs);
+    }
+    
+    .trade-history-header,
+    .trade-row {
+        grid-template-columns: auto 1fr 1fr;
+    }
+    
+    .trade-time {
+        display: none;
+    }
+} 

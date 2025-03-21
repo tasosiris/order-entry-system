@@ -1,16 +1,54 @@
+"""
+Order Entry System (OES) - Main Application
+
+This module serves as the entry point for the Order Entry System, a high-performance
+trading platform designed for hedge funds. It provides real-time order book management,
+WebSocket communication, and comprehensive trading functionality.
+
+The application is built with FastAPI and features:
+- Real-time WebSocket updates for order book and trades
+- Background tasks for order matching and broadcasting
+- REST API endpoints for trading operations
+- System monitoring and latency tracking
+"""
+
+# Standard library imports
 import os
 import json
 import time
 import asyncio
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request, Body, HTTPException, Depends, Form
-from fastapi.responses import HTMLResponse, JSONResponse, Response
-from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
 from typing import Dict, List, Any, Optional
 
+# FastAPI and web-related imports
+from fastapi import (
+    FastAPI, 
+    WebSocket, 
+    WebSocketDisconnect, 
+    Request, 
+    Body, 
+    HTTPException, 
+    Depends, 
+    Form
+)
+from fastapi.responses import (
+    HTMLResponse, 
+    JSONResponse, 
+    Response, 
+    RedirectResponse
+)
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
+
+# Application-specific imports
 from .order_book import order_book
 from .websocket import connection_manager
-from .api import orders_router, orderbook_router, darkpool_router
+from .api import (
+    orders_router,
+    orderbook_router,
+    darkpool_router,
+    market_router,
+    positions_router
+)
 
 # Create FastAPI application
 app = FastAPI(
@@ -19,10 +57,15 @@ app = FastAPI(
     version="1.0.0"
 )
 
+# Mount static files
+app.mount("/static", StaticFiles(directory="app/static"), name="static")
+
 # Include routers
 app.include_router(orders_router)
 app.include_router(orderbook_router)
 app.include_router(darkpool_router)
+app.include_router(market_router)
+app.include_router(positions_router)
 
 # Configure templates
 templates = Jinja2Templates(directory="app/templates")
@@ -32,6 +75,9 @@ matching_task = None
 
 # Background task for periodic order book broadcasts
 broadcast_task = None 
+
+# Background task for latency measurements
+latency_task = None
 
 @app.on_event("startup")
 async def startup_event():
@@ -44,6 +90,10 @@ async def startup_event():
     global broadcast_task
     broadcast_task = asyncio.create_task(periodic_order_book_broadcast())
     
+    # Start the latency measurement task
+    global latency_task
+    latency_task = asyncio.create_task(periodic_latency_broadcast())
+    
     print("Order Entry System started successfully.")
 
 @app.on_event("shutdown")
@@ -55,6 +105,9 @@ async def shutdown_event():
         
     if broadcast_task:
         broadcast_task.cancel()
+        
+    if latency_task:
+        latency_task.cancel()
 
 async def periodic_order_matching():
     """Background task to periodically match orders."""
@@ -111,12 +164,80 @@ async def periodic_order_book_broadcast():
             print(f"Error in order book broadcast: {e}")
             await asyncio.sleep(1)  # Longer delay on error
 
+async def periodic_latency_broadcast():
+    """Background task to measure and broadcast system latency."""
+    # Store last 10 latency measurements to calculate moving average
+    latency_history = []
+    max_history = 10
+    
+    while True:
+        try:
+            # Measure latency between API and database
+            start_time = time.time() * 1000  # Convert to milliseconds
+            
+            # Make a simple Redis operation to measure round-trip time
+            _ = order_book.redis.ping()
+            
+            end_time = time.time() * 1000  # Convert to milliseconds
+            latency = end_time - start_time
+            
+            # Add to history and maintain max length
+            latency_history.append(latency)
+            if len(latency_history) > max_history:
+                latency_history.pop(0)
+                
+            # Calculate average latency
+            avg_latency = round(sum(latency_history) / len(latency_history), 3)
+            
+            # Broadcast to all websocket clients
+            await connection_manager.broadcast({
+                "type": "latency",
+                "value": avg_latency
+            })
+            
+            # Wait before next measurement
+            await asyncio.sleep(1)  # 1 second between measurements
+            
+        except asyncio.CancelledError:
+            # Task is being cancelled
+            break
+        except Exception as e:
+            print(f"Error in latency broadcast: {e}")
+            await asyncio.sleep(1)  # Longer delay on error
+
+# API endpoints
+
+@app.get("/api/status")
+async def get_status():
+    """API endpoint to check system status for connection monitoring."""
+    return {"status": "online", "timestamp": time.time()}
+
+@app.get("/")
+async def get_home(request: Request):
+    """Render the home page."""
+    return templates.TemplateResponse("pages/home.html", {"request": request})
+
 # Main routes
 
-@app.get("/", response_class=HTMLResponse)
-async def get_index(request: Request):
-    """Render the main dashboard page."""
-    return templates.TemplateResponse("index.html", {"request": request})
+@app.get("/stocks", response_class=HTMLResponse)
+async def get_stocks(request: Request):
+    """Render the stocks trading page."""
+    return templates.TemplateResponse("pages/stocks.html", {"request": request})
+
+@app.get("/options", response_class=HTMLResponse)
+async def get_options(request: Request):
+    """Render the options trading page."""
+    return templates.TemplateResponse("pages/options.html", {"request": request})
+
+@app.get("/crypto", response_class=HTMLResponse)
+async def get_crypto(request: Request):
+    """Render the crypto trading page."""
+    return templates.TemplateResponse("pages/crypto.html", {"request": request})
+
+@app.get("/risk-manager", response_class=HTMLResponse)
+async def get_risk_manager(request: Request):
+    """Render the risk manager page."""
+    return templates.TemplateResponse("pages/risk-manager.html", {"request": request})
 
 @app.get("/{path:path}.map")
 async def handle_sourcemap_requests(path: str):

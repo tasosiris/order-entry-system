@@ -1,0 +1,344 @@
+{% extends "layouts/base.html" %}
+
+{% block title %}Order Entry System - Home{% endblock %}
+
+{% block home_active %}active{% endblock %}
+
+{% block content %}
+<!-- Welcome Panel -->
+<section class="panel welcome-panel">
+    <h2>Welcome to Order Entry System</h2>
+    <p class="welcome-message">
+        Select your asset type below to begin trading, or use the navigation links at the top.
+    </p>
+    
+    <div class="asset-tiles">
+        <a href="/stocks" class="asset-tile">
+            <div class="asset-icon">📈</div>
+            <h3>Stocks</h3>
+            <p>Trade equities with advanced order types and dark pool access.</p>
+        </a>
+        
+        <a href="/futures" class="asset-tile">
+            <div class="asset-icon">🔄</div>
+            <h3>Futures</h3>
+            <p>Access global futures markets with low latency execution.</p>
+        </a>
+        
+        <a href="/options" class="asset-tile">
+            <div class="asset-icon">🔀</div>
+            <h3>Options</h3>
+            <p>Trade options with comprehensive greeks and analytics.</p>
+        </a>
+        
+        <a href="/crypto" class="asset-tile">
+            <div class="asset-icon">₿</div>
+            <h3>Crypto</h3>
+            <p>Trade cryptocurrencies with secure wallet integration.</p>
+        </a>
+    </div>
+</section>
+
+<!-- Market Summary Panel -->
+<section class="panel market-summary">
+    <h2>Market Summary</h2>
+    
+    <div class="market-indices">
+        <div class="market-index">
+            <h3>S&P 500</h3>
+            <div class="index-value">4,890.42</div>
+            <div class="index-change positive">+23.15 (+0.48%)</div>
+        </div>
+        
+        <div class="market-index">
+            <h3>Nasdaq</h3>
+            <div class="index-value">15,320.78</div>
+            <div class="index-change positive">+112.38 (+0.74%)</div>
+        </div>
+        
+        <div class="market-index">
+            <h3>Dow Jones</h3>
+            <div class="index-value">38,712.31</div>
+            <div class="index-change negative">-84.62 (-0.22%)</div>
+        </div>
+        
+        <div class="market-index">
+            <h3>Bitcoin</h3>
+            <div class="index-value">$62,451.18</div>
+            <div class="index-change positive">+1,842.30 (+3.04%)</div>
+        </div>
+    </div>
+</section>
+
+<!-- Activity Summary Panel -->
+<section class="panel activity-summary">
+    <h2>Recent Activity</h2>
+    
+    <div class="activity-stats">
+        <div class="activity-stat">
+            <div class="stat-label">Orders Today</div>
+            <div class="stat-value">87</div>
+        </div>
+        
+        <div class="activity-stat">
+            <div class="stat-label">Trades Today</div>
+            <div class="stat-value">42</div>
+        </div>
+        
+        <div class="activity-stat">
+            <div class="stat-label">P&L Today</div>
+            <div class="stat-value positive">+$12,345</div>
+        </div>
+    </div>
+    
+    <div class="recent-orders">
+        <h3>Recent Orders</h3>
+        <table class="orders-table">
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Asset Type</th>
+                    <th>Symbol</th>
+                    <th>Type</th>
+                    <th>Price</th>
+                    <th>Quantity</th>
+                    <th>Status</th>
+                    <th>Time</th>
+                </tr>
+            </thead>
+            <tbody id="recent-orders-body" hx-get="/api/orders/recent" hx-trigger="load, every 5s" hx-swap="innerHTML">
+                <tr><td colspan="8">Loading recent orders...</td></tr>
+            </tbody>
+        </table>
+    </div>
+</section>
+
+<!-- System Status Panel -->
+<section class="panel system-status">
+    <h2>System Status</h2>
+    
+    <div class="status-grid">
+        <div class="status-item">
+            <div class="status-label">Order Processing</div>
+            <div class="status-value online">Online</div>
+        </div>
+        
+        <div class="status-item">
+            <div class="status-label">Market Data Feed</div>
+            <div class="status-value online">Online</div>
+        </div>
+        
+        <div class="status-item">
+            <div class="status-label">Dark Pool</div>
+            <div class="status-value online">Online</div>
+        </div>
+        
+        <div class="status-item">
+            <div class="status-label">External Exchange</div>
+            <div class="status-value online">Online</div>
+        </div>
+    </div>
+    
+    <div class="system-metrics">
+        <div class="metric-item">
+            <div class="metric-label">Avg. Order Latency</div>
+            <div class="metric-value" id="latency-value">12ms</div>
+        </div>
+        
+        <div class="metric-item">
+            <div class="metric-label">Dark Pool Orders</div>
+            <div class="metric-value">45</div>
+        </div>
+        
+        <div class="metric-item">
+            <div class="metric-label">Fill Rate</div>
+            <div class="metric-value">92%</div>
+        </div>
+    </div>
+</section>
+{% endblock %}
+
+{% block additional_styles %}
+<style>
+    .welcome-panel {
+        text-align: center;
+        padding: 2rem;
+    }
+    
+    .welcome-message {
+        font-size: 1.1rem;
+        margin-bottom: 2rem;
+    }
+    
+    .asset-tiles {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+        gap: 1.5rem;
+        margin-top: 2rem;
+    }
+    
+    .asset-tile {
+        background: var(--card-dark);
+        border: 1px solid var(--border-dark);
+        border-radius: 0.75rem;
+        padding: 1.5rem;
+        text-align: center;
+        transition: all 0.2s;
+        text-decoration: none;
+        color: var(--text-dark);
+    }
+    
+    .asset-tile:hover {
+        transform: translateY(-5px);
+        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+        border-color: var(--primary-color);
+    }
+    
+    .asset-icon {
+        font-size: 2.5rem;
+        margin-bottom: 1rem;
+    }
+    
+    .asset-tile h3 {
+        margin-bottom: 0.5rem;
+    }
+    
+    .asset-tile p {
+        font-size: 0.9rem;
+        opacity: 0.8;
+    }
+    
+    .market-indices {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 1rem;
+        margin-top: 1rem;
+    }
+    
+    .market-index {
+        background: var(--card-dark);
+        border: 1px solid var(--border-dark);
+        border-radius: 0.5rem;
+        padding: 1rem;
+    }
+    
+    .market-index h3 {
+        margin-bottom: 0.5rem;
+        font-size: 1rem;
+    }
+    
+    .index-value {
+        font-size: 1.5rem;
+        font-weight: 600;
+        margin-bottom: 0.25rem;
+    }
+    
+    .index-change {
+        font-size: 0.9rem;
+    }
+    
+    .positive {
+        color: var(--success-color);
+    }
+    
+    .negative {
+        color: var(--danger-color);
+    }
+    
+    .activity-stats {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+        gap: 1rem;
+        margin-bottom: 2rem;
+    }
+    
+    .activity-stat {
+        background: var(--card-dark);
+        border: 1px solid var(--border-dark);
+        border-radius: 0.5rem;
+        padding: 1rem;
+        text-align: center;
+    }
+    
+    .stat-label {
+        font-size: 0.9rem;
+        margin-bottom: 0.5rem;
+        opacity: 0.8;
+    }
+    
+    .stat-value {
+        font-size: 1.5rem;
+        font-weight: 600;
+    }
+    
+    .recent-orders {
+        margin-top: 1.5rem;
+    }
+    
+    .recent-orders h3 {
+        margin-bottom: 1rem;
+    }
+    
+    .status-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 1rem;
+        margin-bottom: 1.5rem;
+    }
+    
+    .status-item {
+        padding: 1rem;
+        border: 1px solid var(--border-dark);
+        border-radius: 0.5rem;
+        background: var(--card-dark);
+    }
+    
+    .status-label {
+        font-size: 0.9rem;
+        margin-bottom: 0.5rem;
+        opacity: 0.8;
+    }
+    
+    .status-value {
+        font-size: 1.1rem;
+        font-weight: 600;
+    }
+    
+    .online {
+        color: var(--success-color);
+    }
+    
+    .offline {
+        color: var(--danger-color);
+    }
+    
+    .partial {
+        color: #f59e0b;
+    }
+    
+    .system-metrics {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+        gap: 1rem;
+    }
+    
+    .metric-item {
+        padding: 1rem;
+        border: 1px solid var(--border-dark);
+        border-radius: 0.5rem;
+        background: var(--card-dark);
+        text-align: center;
+    }
+    
+    .metric-label {
+        font-size: 0.9rem;
+        margin-bottom: 0.5rem;
+        opacity: 0.8;
+    }
+    
+    .metric-value {
+        font-size: 1.25rem;
+        font-weight: 600;
+    }
+</style>
+{% endblock %} 

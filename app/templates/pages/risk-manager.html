@@ -1,0 +1,543 @@
+{% extends "layouts/base.html" %}
+
+{% block title %}Order Entry System - Risk Management{% endblock %}
+
+{% block risk_active %}active{% endblock %}
+
+{% block additional_head %}
+<script type="module">
+    document.addEventListener('DOMContentLoaded', function() {
+        // Initialize tabs
+        const tabs = document.querySelectorAll('.tab-btn');
+        tabs.forEach(tab => {
+            tab.addEventListener('click', () => {
+                // Remove active class from all tabs
+                tabs.forEach(t => t.classList.remove('active'));
+                // Add active class to clicked tab
+                tab.classList.add('active');
+                
+                // Show/hide asset type sections
+                const assetType = tab.dataset.assetType;
+                document.querySelectorAll('.orders-section').forEach(section => {
+                    section.style.display = 'none';
+                });
+                
+                if (assetType === 'all') {
+                    document.querySelectorAll('.orders-section').forEach(section => {
+                        section.style.display = 'block';
+                    });
+                } else {
+                    document.querySelector(`.orders-section[data-asset-type="${assetType}"]`).style.display = 'block';
+                }
+            });
+        });
+        
+        // Risk thresholds controls
+        const thresholdInputs = document.querySelectorAll('.threshold-input');
+        thresholdInputs.forEach(input => {
+            input.addEventListener('change', function() {
+                const assetType = this.dataset.assetType;
+                const thresholdType = this.dataset.thresholdType;
+                
+                // In a real app, this would update the threshold via API
+                console.log(`Updated ${thresholdType} threshold for ${assetType} to ${this.value}`);
+                
+                // Show success indicator
+                const indicator = this.nextElementSibling;
+                indicator.textContent = 'Saved';
+                indicator.style.display = 'inline';
+                
+                setTimeout(() => {
+                    indicator.style.display = 'none';
+                }, 2000);
+            });
+        });
+        
+        // Initialize the charts
+        initRiskCharts();
+        
+        function initRiskCharts() {
+            // In a real app, this would use a real charting library like Chart.js
+            // For this mockup, we'll just create some simulated data display
+            
+            createSimpleBarChart('exposure-chart', [
+                { label: 'Stocks', value: 42 },
+                { label: 'Futures', value: 28 },
+                { label: 'Options', value: 18 },
+                { label: 'Crypto', value: 12 }
+            ]);
+            
+            createSimpleBarChart('pnl-chart', [
+                { label: 'Stocks', value: 15, color: '#10b981' },
+                { label: 'Futures', value: -8, color: '#ef4444' },
+                { label: 'Options', value: 22, color: '#10b981' },
+                { label: 'Crypto', value: -5, color: '#ef4444' }
+            ]);
+        }
+        
+        function createSimpleBarChart(containerId, data) {
+            const container = document.getElementById(containerId);
+            if (!container) return;
+            
+            // Clear any existing content
+            container.innerHTML = '';
+            
+            // Calculate the maximum (absolute) value for scaling
+            const maxValue = Math.max(...data.map(item => Math.abs(item.value)));
+            
+            // Create bars
+            const barsContainer = document.createElement('div');
+            barsContainer.className = 'chart-bars';
+            
+            data.forEach(item => {
+                const barContainer = document.createElement('div');
+                barContainer.className = 'chart-bar-container';
+                
+                const label = document.createElement('div');
+                label.className = 'chart-label';
+                label.textContent = item.label;
+                
+                const barWrapper = document.createElement('div');
+                barWrapper.className = 'chart-bar-wrapper';
+                
+                const bar = document.createElement('div');
+                bar.className = 'chart-bar';
+                bar.style.height = `${Math.abs(item.value) / maxValue * 100}%`;
+                bar.style.backgroundColor = item.color || (item.value >= 0 ? '#3b82f6' : '#ef4444');
+                
+                // Position the bar at the bottom if positive, at the top if negative
+                if (item.value >= 0) {
+                    bar.style.alignSelf = 'flex-end';
+                } else {
+                    bar.style.alignSelf = 'flex-start';
+                }
+                
+                const value = document.createElement('div');
+                value.className = 'chart-value';
+                value.textContent = item.value;
+                
+                barWrapper.appendChild(bar);
+                barContainer.appendChild(barWrapper);
+                barContainer.appendChild(label);
+                barContainer.appendChild(value);
+                
+                barsContainer.appendChild(barContainer);
+            });
+            
+            container.appendChild(barsContainer);
+        }
+    });
+</script>
+{% endblock %}
+
+{% block content %}
+<!-- Risk Overview Panel -->
+<section class="panel risk-overview">
+    <h2>Risk Management Overview</h2>
+    
+    <div class="stats-grid">
+        <div class="stat-item">
+            <div class="stat-label">Total Position Value</div>
+            <div class="stat-value">$2,450,000</div>
+        </div>
+        <div class="stat-item">
+            <div class="stat-label">Daily P&L</div>
+            <div class="stat-value positive">+$24,500</div>
+        </div>
+        <div class="stat-item">
+            <div class="stat-label">Open Orders</div>
+            <div class="stat-value">124</div>
+        </div>
+        <div class="stat-item">
+            <div class="stat-label">Margin Utilization</div>
+            <div class="stat-value">65%</div>
+        </div>
+    </div>
+    
+    <div class="risk-charts">
+        <div class="chart-container">
+            <h3>Exposure by Asset Type</h3>
+            <div id="exposure-chart" class="chart"></div>
+        </div>
+        <div class="chart-container">
+            <h3>P&L by Asset Type</h3>
+            <div id="pnl-chart" class="chart"></div>
+        </div>
+    </div>
+</section>
+
+<!-- Risk Thresholds Panel -->
+<section class="panel risk-thresholds">
+    <h2>Risk Thresholds</h2>
+    
+    <div class="thresholds-table">
+        <table class="orders-table">
+            <thead>
+                <tr>
+                    <th>Asset Type</th>
+                    <th>Position Limit</th>
+                    <th>Order Size Limit</th>
+                    <th>Daily Loss Limit</th>
+                    <th>Dark Pool %</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>Stocks</td>
+                    <td>
+                        <input type="number" class="threshold-input" data-asset-type="stocks" data-threshold-type="position" value="1000000">
+                        <span class="save-indicator">Saved</span>
+                    </td>
+                    <td>
+                        <input type="number" class="threshold-input" data-asset-type="stocks" data-threshold-type="order-size" value="100000">
+                        <span class="save-indicator">Saved</span>
+                    </td>
+                    <td>
+                        <input type="number" class="threshold-input" data-asset-type="stocks" data-threshold-type="loss-limit" value="50000">
+                        <span class="save-indicator">Saved</span>
+                    </td>
+                    <td>
+                        <input type="number" class="threshold-input" data-asset-type="stocks" data-threshold-type="dark-pool" value="30" min="0" max="100">
+                        <span class="save-indicator">Saved</span>
+                    </td>
+                </tr>
+                <tr>
+                    <td>Futures</td>
+                    <td>
+                        <input type="number" class="threshold-input" data-asset-type="futures" data-threshold-type="position" value="500000">
+                        <span class="save-indicator">Saved</span>
+                    </td>
+                    <td>
+                        <input type="number" class="threshold-input" data-asset-type="futures" data-threshold-type="order-size" value="50000">
+                        <span class="save-indicator">Saved</span>
+                    </td>
+                    <td>
+                        <input type="number" class="threshold-input" data-asset-type="futures" data-threshold-type="loss-limit" value="25000">
+                        <span class="save-indicator">Saved</span>
+                    </td>
+                    <td>
+                        <input type="number" class="threshold-input" data-asset-type="futures" data-threshold-type="dark-pool" value="20" min="0" max="100">
+                        <span class="save-indicator">Saved</span>
+                    </td>
+                </tr>
+                <tr>
+                    <td>Options</td>
+                    <td>
+                        <input type="number" class="threshold-input" data-asset-type="options" data-threshold-type="position" value="300000">
+                        <span class="save-indicator">Saved</span>
+                    </td>
+                    <td>
+                        <input type="number" class="threshold-input" data-asset-type="options" data-threshold-type="order-size" value="30000">
+                        <span class="save-indicator">Saved</span>
+                    </td>
+                    <td>
+                        <input type="number" class="threshold-input" data-asset-type="options" data-threshold-type="loss-limit" value="15000">
+                        <span class="save-indicator">Saved</span>
+                    </td>
+                    <td>
+                        <input type="number" class="threshold-input" data-asset-type="options" data-threshold-type="dark-pool" value="15" min="0" max="100">
+                        <span class="save-indicator">Saved</span>
+                    </td>
+                </tr>
+                <tr>
+                    <td>Crypto</td>
+                    <td>
+                        <input type="number" class="threshold-input" data-asset-type="crypto" data-threshold-type="position" value="200000">
+                        <span class="save-indicator">Saved</span>
+                    </td>
+                    <td>
+                        <input type="number" class="threshold-input" data-asset-type="crypto" data-threshold-type="order-size" value="20000">
+                        <span class="save-indicator">Saved</span>
+                    </td>
+                    <td>
+                        <input type="number" class="threshold-input" data-asset-type="crypto" data-threshold-type="loss-limit" value="10000">
+                        <span class="save-indicator">Saved</span>
+                    </td>
+                    <td>
+                        <input type="number" class="threshold-input" data-asset-type="crypto" data-threshold-type="dark-pool" value="10" min="0" max="100">
+                        <span class="save-indicator">Saved</span>
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+</section>
+
+<!-- All Orders Panel -->
+<section class="panel all-orders">
+    <h2>All Orders</h2>
+    
+    <div class="asset-type-tabs">
+        <button class="tab-btn active" data-asset-type="all">All</button>
+        <button class="tab-btn" data-asset-type="stocks">Stocks</button>
+        <button class="tab-btn" data-asset-type="futures">Futures</button>
+        <button class="tab-btn" data-asset-type="options">Options</button>
+        <button class="tab-btn" data-asset-type="crypto">Crypto</button>
+    </div>
+    
+    <!-- Stocks Orders -->
+    <div class="orders-section" data-asset-type="stocks">
+        <h3>Stock Orders</h3>
+        <table class="orders-table">
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Symbol</th>
+                    <th>Type</th>
+                    <th>Price</th>
+                    <th>Quantity</th>
+                    <th>Status</th>
+                    <th>Time</th>
+                    <th>Trader</th>
+                    <th>Action</th>
+                </tr>
+            </thead>
+            <tbody id="stocks-orders-body" hx-get="/api/risk/orders?asset_type=stocks" hx-trigger="load, every 5s" hx-swap="innerHTML">
+                <tr><td colspan="9">Loading stock orders...</td></tr>
+            </tbody>
+        </table>
+    </div>
+    
+    <!-- Futures Orders -->
+    <div class="orders-section" data-asset-type="futures" style="display: none;">
+        <h3>Futures Orders</h3>
+        <table class="orders-table">
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Symbol</th>
+                    <th>Type</th>
+                    <th>Price</th>
+                    <th>Quantity</th>
+                    <th>Status</th>
+                    <th>Time</th>
+                    <th>Trader</th>
+                    <th>Action</th>
+                </tr>
+            </thead>
+            <tbody id="futures-orders-body" hx-get="/api/risk/orders?asset_type=futures" hx-trigger="load, every 5s" hx-swap="innerHTML">
+                <tr><td colspan="9">Loading futures orders...</td></tr>
+            </tbody>
+        </table>
+    </div>
+    
+    <!-- Options Orders -->
+    <div class="orders-section" data-asset-type="options" style="display: none;">
+        <h3>Options Orders</h3>
+        <table class="orders-table">
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Symbol</th>
+                    <th>Type</th>
+                    <th>Price</th>
+                    <th>Quantity</th>
+                    <th>Status</th>
+                    <th>Time</th>
+                    <th>Trader</th>
+                    <th>Action</th>
+                </tr>
+            </thead>
+            <tbody id="options-orders-body" hx-get="/api/risk/orders?asset_type=options" hx-trigger="load, every 5s" hx-swap="innerHTML">
+                <tr><td colspan="9">Loading options orders...</td></tr>
+            </tbody>
+        </table>
+    </div>
+    
+    <!-- Crypto Orders -->
+    <div class="orders-section" data-asset-type="crypto" style="display: none;">
+        <h3>Crypto Orders</h3>
+        <table class="orders-table">
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Symbol</th>
+                    <th>Type</th>
+                    <th>Price</th>
+                    <th>Quantity</th>
+                    <th>Status</th>
+                    <th>Time</th>
+                    <th>Trader</th>
+                    <th>Action</th>
+                </tr>
+            </thead>
+            <tbody id="crypto-orders-body" hx-get="/api/risk/orders?asset_type=crypto" hx-trigger="load, every 5s" hx-swap="innerHTML">
+                <tr><td colspan="9">Loading crypto orders...</td></tr>
+            </tbody>
+        </table>
+    </div>
+</section>
+
+<!-- Risk Alerts Panel -->
+<section class="panel risk-alerts">
+    <h2>Risk Alerts</h2>
+    <div class="alerts-container" id="risk-alerts" hx-get="/api/risk/alerts" hx-trigger="load, every 10s" hx-swap="innerHTML">
+        <div class="loading-alerts">Loading risk alerts...</div>
+    </div>
+</section>
+{% endblock %}
+
+{% block additional_styles %}
+<style>
+    /* Risk Manager Specific Styles */
+    .risk-overview {
+        margin-bottom: 2rem;
+    }
+    
+    .positive {
+        color: var(--success-color);
+    }
+    
+    .negative {
+        color: var(--danger-color);
+    }
+    
+    .risk-charts {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 2rem;
+        margin-top: 2rem;
+    }
+    
+    .chart-container {
+        width: 100%;
+        min-height: 300px;
+        border: 1px solid var(--border-dark);
+        border-radius: 0.5rem;
+        padding: 1rem;
+    }
+    
+    .chart {
+        height: 250px;
+        width: 100%;
+    }
+    
+    .chart-bars {
+        display: flex;
+        height: 100%;
+        justify-content: space-around;
+        align-items: flex-end;
+        padding-top: 30px;
+    }
+    
+    .chart-bar-container {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        width: 60px;
+    }
+    
+    .chart-bar-wrapper {
+        height: 200px;
+        width: 40px;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        position: relative;
+    }
+    
+    .chart-bar {
+        width: 100%;
+        background-color: var(--primary-color);
+        transition: height 0.3s;
+    }
+    
+    .chart-label {
+        margin-top: 0.5rem;
+        font-size: 0.875rem;
+    }
+    
+    .chart-value {
+        font-size: 0.875rem;
+        font-weight: 600;
+        margin-top: 0.25rem;
+    }
+    
+    .thresholds-table input {
+        width: 100%;
+        max-width: 120px;
+        padding: 0.5rem;
+        border: 1px solid var(--border-dark);
+        border-radius: 0.25rem;
+        background-color: var(--card-dark);
+        color: var(--text-dark);
+    }
+    
+    .save-indicator {
+        display: none;
+        font-size: 0.75rem;
+        color: var(--success-color);
+        margin-left: 0.5rem;
+    }
+    
+    .asset-type-tabs {
+        display: flex;
+        gap: 0.5rem;
+        margin-bottom: 1.5rem;
+    }
+    
+    .asset-type-tabs .tab-btn {
+        padding: 0.5rem 1rem;
+        border: 1px solid var(--border-dark);
+        border-radius: 0.5rem;
+        background: transparent;
+        color: var(--text-dark);
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+    
+    .asset-type-tabs .tab-btn.active {
+        background: var(--primary-color);
+        border-color: var(--primary-color);
+        color: white;
+    }
+    
+    .orders-section {
+        margin-bottom: 1.5rem;
+    }
+    
+    .alerts-container {
+        max-height: 300px;
+        overflow-y: auto;
+    }
+    
+    .alert-item {
+        padding: 1rem;
+        border-radius: 0.5rem;
+        margin-bottom: 0.5rem;
+        background-color: rgba(59, 130, 246, 0.1);
+        border-left: 4px solid var(--primary-color);
+    }
+    
+    .alert-item.warning {
+        background-color: rgba(245, 158, 11, 0.1);
+        border-left-color: #f59e0b;
+    }
+    
+    .alert-item.critical {
+        background-color: rgba(239, 68, 68, 0.1);
+        border-left-color: var(--danger-color);
+    }
+    
+    .alert-timestamp {
+        font-size: 0.75rem;
+        color: #6b7280;
+        margin-bottom: 0.25rem;
+    }
+    
+    .alert-title {
+        font-weight: 600;
+        margin-bottom: 0.5rem;
+    }
+    
+    .alert-description {
+        font-size: 0.875rem;
+    }
+    
+    @media (max-width: 1024px) {
+        .risk-charts {
+            grid-template-columns: 1fr;
+        }
+    }
+</style>
+{% endblock %} 

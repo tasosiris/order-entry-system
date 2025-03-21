@@ -1,0 +1,1413 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Order Entry System - Hedge Fund Grade</title>
+    <!-- HTMX for dynamic updates without page reloads -->
+    <script src="https://unpkg.com/htmx.org@1.9.2"></script>
+    <!-- Alpine.js for UI interactions -->
+    <script src="https://unpkg.com/alpinejs@3.12.0" defer></script>
+    <!-- Simple CSS for clean appearance -->
+    <style>
+        :root {
+            --main-bg-color: #121212;
+            --panel-bg-color: #1e1e1e;
+            --accent-color: #2962ff;
+            --text-color: #e0e0e0;
+            --bid-color: #4caf50;
+            --ask-color: #f44336;
+            --border-color: #333;
+            --light-bg-color: #f5f5f5;
+            --light-panel-color: #ffffff;
+            --light-text-color: #212121;
+            --light-border-color: #e0e0e0;
+        }
+        
+        body {
+            font-family: 'Roboto', 'Segoe UI', Arial, sans-serif;
+            background-color: var(--main-bg-color);
+            color: var(--text-color);
+            margin: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            min-height: 100vh;
+            transition: background-color 0.3s ease, color 0.3s ease;
+        }
+        
+        body.light-mode {
+            background-color: var(--light-bg-color);
+            color: var(--light-text-color);
+        }
+        
+        header {
+            background-color: var(--panel-bg-color);
+            padding: 1rem;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            transition: background-color 0.3s ease, border-color 0.3s ease;
+        }
+        
+        body.light-mode header {
+            background-color: var(--light-panel-color);
+            border-bottom: 1px solid var(--light-border-color);
+        }
+        
+        h1, h2, h3 {
+            margin: 0;
+            font-weight: 400;
+        }
+        
+        main {
+            flex: 1;
+            display: grid;
+            grid-template-columns: 400px 1fr 350px;
+            grid-gap: 1rem;
+            padding: 1rem;
+        }
+        
+        .panel {
+            background-color: var(--panel-bg-color);
+            border-radius: 4px;
+            padding: 1rem;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            transition: background-color 0.3s ease, box-shadow 0.3s ease;
+        }
+        
+        body.light-mode .panel {
+            background-color: var(--light-panel-color);
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+        }
+        
+        .order-entry {
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .order-form {
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+        }
+        
+        .instrument-buttons {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+            margin-bottom: 1rem;
+        }
+        
+        .instrument-btn {
+            flex: 1;
+            min-width: 80px;
+            background-color: #333;
+            border: none;
+            color: var(--text-color);
+            padding: 0.5rem;
+            text-align: center;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+        
+        body.light-mode .instrument-btn {
+            background-color: #eee;
+            color: var(--light-text-color);
+        }
+        
+        .instrument-btn:hover {
+            background-color: #444;
+        }
+        
+        body.light-mode .instrument-btn:hover {
+            background-color: #ddd;
+        }
+        
+        .instrument-btn.active {
+            background-color: var(--accent-color);
+            color: white;
+        }
+        
+        .ticker-search {
+            position: relative;
+        }
+        
+        .ticker-suggestions {
+            position: absolute;
+            top: 100%;
+            left: 0;
+            right: 0;
+            background-color: #252525;
+            border: 1px solid var(--border-color);
+            border-radius: 0 0 4px 4px;
+            max-height: 200px;
+            overflow-y: auto;
+            z-index: 10;
+        }
+        
+        body.light-mode .ticker-suggestions {
+            background-color: white;
+            border: 1px solid #ddd;
+        }
+        
+        .ticker-item {
+            padding: 0.5rem;
+            cursor: pointer;
+        }
+        
+        .ticker-item:hover {
+            background-color: #333;
+        }
+        
+        body.light-mode .ticker-item:hover {
+            background-color: #f0f0f0;
+        }
+        
+        .order-options {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 0.5rem;
+        }
+        
+        label {
+            display: block;
+            margin-bottom: 0.3rem;
+        }
+        
+        input, select, button {
+            padding: 0.6rem;
+            border-radius: 4px;
+            border: 1px solid var(--border-color);
+            background-color: #252525;
+            color: var(--text-color);
+            font-size: 1rem;
+            transition: background-color 0.3s ease, color 0.3s ease, border-color 0.3s ease;
+        }
+        
+        body.light-mode input, 
+        body.light-mode select, 
+        body.light-mode button:not(.buy-btn):not(.sell-btn):not(.instrument-btn) {
+            background-color: white;
+            color: var(--light-text-color);
+            border: 1px solid #ddd;
+        }
+        
+        button {
+            cursor: pointer;
+            background-color: var(--accent-color);
+            color: white;
+            border: none;
+            transition: background-color 0.2s;
+        }
+        
+        button:hover {
+            background-color: #1e4ec0;
+        }
+        
+        .actions {
+            display: flex;
+            gap: 0.5rem;
+        }
+        
+        .buy-btn {
+            background-color: var(--bid-color);
+            flex: 1;
+            font-weight: bold;
+            font-size: 1.1rem;
+        }
+        
+        .buy-btn:hover {
+            background-color: #388e3c;
+        }
+        
+        .sell-btn {
+            background-color: var(--ask-color);
+            flex: 1;
+            font-weight: bold;
+            font-size: 1.1rem;
+        }
+        
+        .sell-btn:hover {
+            background-color: #d32f2f;
+        }
+        
+        #theme-toggle {
+            background: none;
+            border: none;
+            color: var(--text-color);
+            cursor: pointer;
+            padding: 0.5rem;
+            display: flex;
+            align-items: center;
+            font-size: 0.9rem;
+        }
+        
+        body.light-mode #theme-toggle {
+            color: var(--light-text-color);
+        }
+        
+        .order-book {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            grid-gap: 1rem;
+        }
+        
+        .book-side {
+            min-height: 300px;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        
+        th, td {
+            padding: 0.5rem;
+            text-align: right;
+            border-bottom: 1px solid var(--border-color);
+        }
+        
+        th {
+            background-color: #252525;
+        }
+        
+        .bids tr:hover {
+            background-color: rgba(76, 175, 80, 0.1);
+        }
+        
+        .asks tr:hover {
+            background-color: rgba(244, 67, 54, 0.1);
+        }
+        
+        .price {
+            font-weight: bold;
+        }
+        
+        .bid .price {
+            color: var(--bid-color);
+        }
+        
+        .ask .price {
+            color: var(--ask-color);
+        }
+        
+        .trades-panel {
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        
+        .latency-indicator {
+            font-size: 0.8rem;
+            color: #999;
+            margin-top: 0.5rem;
+        }
+        
+        .flash {
+            animation: flash-animation 0.5s ease-out;
+        }
+        
+        @keyframes flash-animation {
+            0% { background-color: rgba(41, 98, 255, 0.5); }
+            100% { background-color: transparent; }
+        }
+        
+        .status-message {
+            padding: 0.5rem;
+            margin-top: 1rem;
+            border-radius: 4px;
+        }
+        
+        .status-error {
+            background-color: rgba(244, 67, 54, 0.2);
+            color: #ff8a80;
+        }
+        
+        .status-success {
+            background-color: rgba(76, 175, 80, 0.2);
+            color: #b9f6ca;
+        }
+        
+        @media (max-width: 1200px) {
+            main {
+                grid-template-columns: 1fr;
+                grid-template-rows: auto auto auto;
+            }
+        }
+        
+        .notification {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            padding: 15px 20px;
+            border-radius: 4px;
+            color: white;
+            z-index: 1000;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            transition: opacity 0.3s;
+            max-width: 300px;
+            opacity: 0;
+        }
+        
+        .notification.show {
+            opacity: 1;
+        }
+        
+        .notification-success {
+            background-color: var(--bid-color);
+        }
+        
+        .notification-error {
+            background-color: var(--ask-color);
+        }
+        
+        .notification-info {
+            background-color: var(--accent-color);
+        }
+        
+        /* Order Management Styles */
+        .order-management {
+            margin-top: 1.5rem;
+            border-top: 1px solid var(--border-color);
+            padding-top: 1rem;
+        }
+        
+        .tabs {
+            display: flex;
+            gap: 0.5rem;
+            margin-bottom: 1rem;
+        }
+        
+        .tab-btn {
+            padding: 0.5rem 1rem;
+            background-color: #333;
+            border: none;
+            border-radius: 4px;
+            color: var(--text-color);
+            cursor: pointer;
+        }
+        
+        body.light-mode .tab-btn {
+            background-color: #eee;
+            color: var(--light-text-color);
+        }
+        
+        .tab-btn:hover {
+            background-color: #444;
+        }
+        
+        body.light-mode .tab-btn:hover {
+            background-color: #ddd;
+        }
+        
+        .tab-btn.active {
+            background-color: var(--accent-color);
+            color: white;
+        }
+        
+        .orders-table {
+            width: 100%;
+            font-size: 0.9rem;
+            margin-top: 0.5rem;
+        }
+        
+        .orders-table th, .orders-table td {
+            padding: 0.4rem;
+            text-align: left;
+        }
+        
+        .cancel-btn {
+            background-color: #666;
+            color: white;
+            border: none;
+            border-radius: 3px;
+            padding: 0.2rem 0.4rem;
+            font-size: 0.8rem;
+            cursor: pointer;
+        }
+        
+        .cancel-btn:hover {
+            background-color: var(--ask-color);
+        }
+        
+        .mt-4 {
+            margin-top: 1rem;
+        }
+        
+        /* Dark Pool Badge */
+        .badge {
+            display: inline-block;
+            padding: 0.2rem 0.4rem;
+            border-radius: 3px;
+            font-size: 0.7rem;
+            font-weight: bold;
+            margin-left: 0.3rem;
+        }
+        
+        .internal-badge {
+            background-color: #2962ff;
+            color: white;
+        }
+        
+        /* Dark Pool Routing Option */
+        .routing-option {
+            margin-top: 0.5rem;
+            border-top: 1px solid var(--border-color);
+            padding-top: 0.5rem;
+        }
+        
+        .routing-toggle {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        
+        .toggle-switch {
+            position: relative;
+            display: inline-block;
+            width: 44px;
+            height: 22px;
+        }
+        
+        .toggle-switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+        
+        .toggle-slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: #444;
+            transition: .4s;
+            border-radius: 22px;
+        }
+        
+        .toggle-slider:before {
+            position: absolute;
+            content: "";
+            height: 18px;
+            width: 18px;
+            left: 2px;
+            bottom: 2px;
+            background-color: white;
+            transition: .4s;
+            border-radius: 50%;
+        }
+        
+        input:checked + .toggle-slider {
+            background-color: var(--accent-color);
+        }
+        
+        input:checked + .toggle-slider:before {
+            transform: translateX(22px);
+        }
+        
+        .tooltip {
+            position: relative;
+            display: inline-block;
+            cursor: pointer;
+        }
+        
+        .tooltip .tooltip-text {
+            visibility: hidden;
+            width: 200px;
+            background-color: #333;
+            color: var(--text-color);
+            text-align: center;
+            border-radius: 4px;
+            padding: 0.5rem;
+            position: absolute;
+            z-index: 1;
+            bottom: 125%;
+            left: 50%;
+            margin-left: -100px;
+            opacity: 0;
+            transition: opacity 0.3s;
+            font-size: 0.8rem;
+        }
+        
+        .tooltip:hover .tooltip-text {
+            visibility: visible;
+            opacity: 1;
+        }
+        
+        body.light-mode .tooltip .tooltip-text {
+            background-color: #f5f5f5;
+            color: var(--light-text-color);
+            border: 1px solid #ddd;
+        }
+        
+        /* Dark Pool Stats Styles */
+        .dark-pool-stats {
+            border-top: 1px solid var(--border-color);
+            padding-top: 1rem;
+        }
+        
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 0.8rem;
+            margin-top: 0.8rem;
+        }
+        
+        .stat-item {
+            background-color: #252525;
+            padding: 0.8rem;
+            border-radius: 4px;
+            text-align: center;
+            transition: background-color 0.3s ease;
+        }
+        
+        body.light-mode .stat-item {
+            background-color: #f5f5f5;
+        }
+        
+        .stat-label {
+            font-size: 0.8rem;
+            color: #999;
+            margin-bottom: 0.3rem;
+        }
+        
+        .stat-value {
+            font-size: 1.1rem;
+            font-weight: bold;
+        }
+        
+        /* Order Book Controls */
+        .order-book-controls {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            margin-bottom: 1rem;
+        }
+        
+        .order-book-toggle {
+            margin-right: 0.3rem;
+        }
+    </style>
+    <script>
+        // Configure HTMX to handle both HTML and JSON responses
+        document.addEventListener('htmx:configRequest', function(evt) {
+            console.log('[HTMX Config] Request path:', evt.detail.path);
+            console.log('[HTMX Config] Headers:', evt.detail.headers);
+            // Add response type header based on the endpoint
+            if (evt.detail.path.includes('/api/orders/open') || 
+                evt.detail.path.includes('/api/orders/filled') || 
+                evt.detail.path.includes('/api/orders/cancelled')) {
+                evt.detail.headers['Accept'] = 'text/html';
+                console.log('[HTMX Config] Setting Accept: text/html');
+            } else {
+                evt.detail.headers['Accept'] = 'application/json';
+                console.log('[HTMX Config] Setting Accept: application/json');
+            }
+        });
+
+        // Handle HTMX after-request processing
+        document.addEventListener('htmx:afterRequest', function(evt) {
+            console.log('[HTMX After] Raw response:', evt.detail.xhr.responseText);
+            console.log('[HTMX After] Response headers:', evt.detail.xhr.getAllResponseHeaders());
+            console.log('[HTMX After] Request path:', evt.detail.pathInfo.requestPath);
+            
+            const xhr = event.detail.xhr;
+            const path = event.detail.pathInfo.requestPath;
+            
+            // For HTML endpoints, let HTMX handle it normally
+            if (path.includes('/api/orders/open') || 
+                path.includes('/api/orders/filled') || 
+                path.includes('/api/orders/cancelled')) {
+                return;
+            }
+            
+            // For JSON endpoints, handle manually
+            try {
+                if (xhr.status >= 200 && xhr.status < 300) {
+                    const response = JSON.parse(xhr.responseText);
+                    handleJsonResponse(response);
+                }
+            } catch (e) {
+                console.error('Error processing response:', e);
+            }
+        });
+    </script>
+</head>
+<body x-data="{ darkMode: true, activeInstrument: 'Stocks', orderType: 'limit', showTickers: false, instruments: ['Stocks', 'Futures', 'Options', 'Crypto'], internalRouting: false }" :class="darkMode ? '' : 'light-mode'">
+    <header>
+        <h1>Order Entry System</h1>
+        <div class="header-controls">
+            <button id="theme-toggle" @click="darkMode = !darkMode">
+                <span x-text="darkMode ? '☀️ Light Mode' : '🌙 Dark Mode'"></span>
+            </button>
+            <span id="connection-status">Connected</span>
+        </div>
+    </header>
+    
+    <main>
+        <!-- Order Entry Panel -->
+        <section class="panel order-entry">
+            <h2>Order Entry</h2>
+            
+            <!-- Instrument Selection -->
+            <div class="instrument-buttons">
+                <template x-for="instrument in instruments">
+                    <button 
+                        type="button" 
+                        class="instrument-btn" 
+                        :class="activeInstrument === instrument ? 'active' : ''"
+                        @click="activeInstrument = instrument" 
+                        x-text="instrument">
+                    </button>
+                </template>
+            </div>
+            
+            <form class="order-form" hx-post="/api/orders" hx-trigger="submit" hx-target="#order-status">
+                <!-- Symbol Selection -->
+                <div class="ticker-search" x-data="{ ticker: '', suggestions: [], isOpen: false }">
+                    <label for="symbol">Symbol</label>
+                    <input 
+                        type="text" 
+                        id="symbol" 
+                        name="symbol" 
+                        required 
+                        placeholder="Search ticker..." 
+                        x-model="ticker"
+                        @input="
+                            if(ticker.length > 1) {
+                                isOpen = true;
+                                // This would be replaced with a real API call
+                                // Just mocking results based on instrument type for now
+                                if(activeInstrument === 'Stocks') {
+                                    suggestions = ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'META'].filter(s => s.toLowerCase().includes(ticker.toLowerCase()));
+                                } else if(activeInstrument === 'Crypto') {
+                                    suggestions = ['BTC-USD', 'ETH-USD', 'SOL-USD', 'AVAX-USD'].filter(s => s.toLowerCase().includes(ticker.toLowerCase()));
+                                } else if(activeInstrument === 'Futures') {
+                                    suggestions = ['ES', 'NQ', 'CL', 'GC', 'ZB'].filter(s => s.toLowerCase().includes(ticker.toLowerCase()));
+                                } else {
+                                    suggestions = ['AAPL230915C180', 'SPY230915P410', 'QQQ231020C380'].filter(s => s.toLowerCase().includes(ticker.toLowerCase()));
+                                }
+                            } else {
+                                isOpen = false;
+                            }
+                        "
+                        @focus="isOpen = ticker.length > 1"
+                        @blur="setTimeout(() => isOpen = false, 200)"
+                    >
+                    <div class="ticker-suggestions" x-show="isOpen && suggestions.length > 0">
+                        <template x-for="suggestion in suggestions">
+                            <div 
+                                class="ticker-item" 
+                                x-text="suggestion"
+                                @click="ticker = suggestion; isOpen = false">
+                            </div>
+                        </template>
+                    </div>
+                </div>
+                
+                <!-- Order Type Selection -->
+                <div class="order-type-options">
+                    <label>Order Type</label>
+                    <div class="order-options">
+                        <div>
+                            <input type="radio" id="limit-order" name="order_type" value="limit" x-model="orderType">
+                            <label for="limit-order">Limit</label>
+                        </div>
+                        <div>
+                            <input type="radio" id="market-order" name="order_type" value="market" x-model="orderType">
+                            <label for="market-order">Market</label>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Price (only visible for limit orders) -->
+                <div x-show="orderType === 'limit'">
+                    <label for="price">Price</label>
+                    <input type="number" id="price" name="price" step="0.01" min="0.01" required placeholder="Enter price">
+                </div>
+                
+                <!-- Quantity -->
+                <div>
+                    <label for="quantity">Quantity</label>
+                    <input type="number" id="quantity" name="quantity" step="0.0001" min="0.0001" required placeholder="Enter quantity">
+                </div>
+                
+                <!-- Time-in-Force Options -->
+                <div>
+                    <label for="tif">Time in Force</label>
+                    <select id="tif" name="tif">
+                        <option value="day">Day</option>
+                        <option value="gtc">Good Till Cancelled</option>
+                        <option value="ioc">Immediate or Cancel</option>
+                        <option value="fok">Fill or Kill</option>
+                    </select>
+                </div>
+                
+                <!-- Dark Pool Routing Option -->
+                <div class="routing-option">
+                    <div class="routing-toggle">
+                        <label class="toggle-switch">
+                            <input type="checkbox" name="internal" x-model="internalRouting">
+                            <span class="toggle-slider"></span>
+                        </label>
+                        <span>Route to Dark Pool</span>
+                        <div class="tooltip">
+                            <span>?</span>
+                            <div class="tooltip-text">
+                                Dark Pool orders are matched internally before being sent to external markets. This can reduce market impact and improve execution quality.
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Buy/Sell Buttons -->
+                <div class="actions">
+                    <button type="submit" class="buy-btn" onclick="this.form.elements.type.value='buy'">BUY</button>
+                    <button type="submit" class="sell-btn" onclick="this.form.elements.type.value='sell'">SELL</button>
+                    <input type="hidden" id="type" name="type" value="buy">
+                    <input type="hidden" name="instrument" x-bind:value="activeInstrument">
+                </div>
+            </form>
+            
+            <div id="order-status" class="status-message"></div>
+            
+            <div id="latency-stats" class="latency-indicator">
+                Avg. Latency: -- ms
+            </div>
+            
+            <!-- Order Management Section -->
+            <div class="order-management" x-data="{ activeTab: 'open' }">
+                <h3 class="mt-4">Orders</h3>
+                <div class="tabs">
+                    <button 
+                        class="tab-btn" 
+                        :class="activeTab === 'open' ? 'active' : ''" 
+                        @click="activeTab = 'open'">Open</button>
+                    <button 
+                        class="tab-btn" 
+                        :class="activeTab === 'filled' ? 'active' : ''" 
+                        @click="activeTab = 'filled'">Filled</button>
+                    <button 
+                        class="tab-btn" 
+                        :class="activeTab === 'cancelled' ? 'active' : ''" 
+                        @click="activeTab = 'cancelled'">Cancelled</button>
+                </div>
+                
+                <!-- Order Tables -->
+                <div class="panel order-tables">
+                    <h3>Open Orders</h3>
+                    <table class="orders-table">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Symbol</th>
+                                <th>Type</th>
+                                <th>Price</th>
+                                <th>Quantity</th>
+                                <th>Time</th>
+                                <th>Action</th>
+                            </tr>
+                        </thead>
+                        <tbody id="open-orders-body"
+                               hx-get="/api/orders/open"
+                               hx-trigger="load, every 2s"
+                               hx-swap="innerHTML">
+                            <tr><td colspan="7">Loading orders...</td></tr>
+                        </tbody>
+                    </table>
+
+                    <h3>Filled Orders</h3>
+                    <table class="orders-table">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Symbol</th>
+                                <th>Type</th>
+                                <th>Fill Price</th>
+                                <th>Quantity</th>
+                                <th>Time</th>
+                            </tr>
+                        </thead>
+                        <tbody id="filled-orders-body"
+                               hx-get="/api/orders/filled"
+                               hx-trigger="load, every 2s"
+                               hx-swap="innerHTML">
+                            <tr><td colspan="6">Loading orders...</td></tr>
+                        </tbody>
+                    </table>
+
+                    <h3>Cancelled Orders</h3>
+                    <table class="orders-table">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Symbol</th>
+                                <th>Type</th>
+                                <th>Price</th>
+                                <th>Quantity</th>
+                                <th>Time</th>
+                            </tr>
+                        </thead>
+                        <tbody id="cancelled-orders-body"
+                               hx-get="/api/orders/cancelled"
+                               hx-trigger="load, every 2s"
+                               hx-swap="innerHTML">
+                            <tr><td colspan="6">Loading orders...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                
+                <!-- Dark Pool Stats Section -->
+                <div class="dark-pool-stats mt-4" 
+                    x-data="{ stats: { enabled: true, buy_orders: 0, sell_orders: 0, trades: 0 }, isLoading: true, hasError: false }"
+                    x-init="
+                        fetchDarkPoolStats = () => {
+                            isLoading = true;
+                            hasError = false;
+                            
+                            fetch('/api/darkpool/status')
+                                .then(response => {
+                                    if (!response.ok) {
+                                        throw new Error(`Error ${response.status}: ${response.statusText}`);
+                                    }
+                                    return response.json();
+                                })
+                                .then(data => {
+                                    stats = data;
+                                    isLoading = false;
+                                })
+                                .catch(err => {
+                                    console.error('Error fetching dark pool stats:', err);
+                                    hasError = true;
+                                    isLoading = false;
+                                });
+                        };
+                        
+                        // Initial fetch
+                        fetchDarkPoolStats();
+                        
+                        // Update stats periodically
+                        setInterval(fetchDarkPoolStats, 10000);
+                    "
+                >
+                    <h3>Dark Pool Stats</h3>
+                    <div class="stats-grid" x-show="!isLoading && !hasError">
+                        <div class="stat-item">
+                            <div class="stat-label">Status</div>
+                            <div class="stat-value" x-text="stats.enabled ? 'Enabled' : 'Disabled'"></div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-label">Buy Orders</div>
+                            <div class="stat-value" x-text="stats.buy_orders"></div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-label">Sell Orders</div>
+                            <div class="stat-value" x-text="stats.sell_orders"></div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-label">Trades</div>
+                            <div class="stat-value" x-text="stats.trades"></div>
+                        </div>
+                    </div>
+                    <div class="stats-loading" x-show="isLoading">
+                        <p>Loading dark pool statistics...</p>
+                    </div>
+                    <div class="stats-error" x-show="hasError" style="color: #f44336;">
+                        <p>Could not load dark pool statistics</p>
+                        <button class="retry-btn" @click="fetchDarkPoolStats()">Retry</button>
+                    </div>
+                </div>
+            </div>
+        </section>
+        
+        <!-- Order Book Panel -->
+        <section class="panel">
+            <h2>Order Book</h2>
+            <div x-data="{
+                includeInternal: false,
+                loadOrderBook() {
+                    fetch(`/api/orderbook?include_internal=${this.includeInternal}`)
+                        .then(response => {
+                            if (!response.ok) {
+                                if (response.status === 404) {
+                                    console.error('Error 404: Order book endpoint not found');
+                                    return { bids: [], asks: [] }; // Return empty data on 404
+                                }
+                                throw new Error(`Error ${response.status}: ${response.statusText}`);
+                            }
+                            return response.json();
+                        })
+                        .then(data => {
+                            // Update bids
+                            const bidsBody = document.getElementById('bids-body');
+                            bidsBody.innerHTML = '';
+                            if (!data.bids || data.bids.length === 0) {
+                                const row = document.createElement('tr');
+                                row.innerHTML = '<td colspan="3">No buy orders</td>';
+                                bidsBody.appendChild(row);
+                            } else {
+                                data.bids.forEach(order => {
+                                    const row = document.createElement('tr');
+                                    row.className = 'bid';
+                                    const isInternal = order.internal_match === 'True';
+                                    const internalBadge = isInternal ? '<span class="badge internal-badge">DARK</span>' : '';
+                                    const price = parseFloat(order.price).toFixed(2);
+                                    const quantity = parseFloat(order.quantity).toFixed(4);
+                                    const total = (parseFloat(order.price) * parseFloat(order.quantity)).toFixed(2);
+                                    row.innerHTML = `<td class="price">${price} ${internalBadge}</td><td>${quantity}</td><td>${total}</td>`;
+                                    bidsBody.appendChild(row);
+                                });
+                            }
+                            // Update asks
+                            const asksBody = document.getElementById('asks-body');
+                            asksBody.innerHTML = '';
+                            if (!data.asks || data.asks.length === 0) {
+                                const row = document.createElement('tr');
+                                row.innerHTML = '<td colspan="3">No sell orders</td>';
+                                asksBody.appendChild(row);
+                            } else {
+                                data.asks.forEach(order => {
+                                    const row = document.createElement('tr');
+                                    row.className = 'ask';
+                                    const isInternal = order.internal_match === 'True';
+                                    const internalBadge = isInternal ? '<span class="badge internal-badge">DARK</span>' : '';
+                                    const price = parseFloat(order.price).toFixed(2);
+                                    const quantity = parseFloat(order.quantity).toFixed(4);
+                                    const total = (parseFloat(order.price) * parseFloat(order.quantity)).toFixed(2);
+                                    row.innerHTML = `<td class="price">${price} ${internalBadge}</td><td>${quantity}</td><td>${total}</td>`;
+                                    asksBody.appendChild(row);
+                                });
+                            }
+                        })
+                        .catch(error => {
+                            console.error('Error fetching order book:', error);
+                            const bidsBody = document.getElementById('bids-body');
+                            const asksBody = document.getElementById('asks-body');
+                            bidsBody.innerHTML = '<tr><td colspan="3">Could not load order book data</td></tr>';
+                            asksBody.innerHTML = '<tr><td colspan="3">Could not load order book data</td></tr>';
+                        });
+                }
+            }"
+            x-init="loadOrderBook()"
+            x-effect="loadOrderBook()">
+                <div class="order-book-controls">
+                    <label class="toggle-switch order-book-toggle">
+                        <input type="checkbox" id="include-internal" x-model="includeInternal" @change="loadOrderBook()">
+                        <span class="toggle-slider"></span>
+                    </label>
+                    <span>Show Dark Pool Orders</span>
+                </div>
+                <div id="order-book" class="order-book">
+                    <!-- Bids (Buy Orders) -->
+                    <div class="book-side">
+                        <h3>Bids</h3>
+                        <table class="bids" id="bids-table">
+                            <thead>
+                                <tr>
+                                    <th>Price</th>
+                                    <th>Quantity</th>
+                                    <th>Total</th>
+                                </tr>
+                            </thead>
+                            <tbody id="bids-body">
+                                <tr>
+                                    <td colspan="3">Loading...</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <!-- Asks (Sell Orders) -->
+                    <div class="book-side">
+                        <h3>Asks</h3>
+                        <table class="asks" id="asks-table">
+                            <thead>
+                                <tr>
+                                    <th>Price</th>
+                                    <th>Quantity</th>
+                                    <th>Total</th>
+                                </tr>
+                            </thead>
+                            <tbody id="asks-body">
+                                <tr>
+                                    <td colspan="3">Loading...</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </section>
+        
+        <!-- Trades Panel -->
+        <section class="panel trades-panel">
+            <h2>Recent Trades</h2>
+            <table id="trades-table">
+                <thead>
+                    <tr>
+                        <th>Time</th>
+                        <th>Price</th>
+                        <th>Quantity</th>
+                    </tr>
+                </thead>
+                <tbody id="trades-body">
+                    <tr>
+                        <td colspan="3">Loading recent trades...</td>
+                    </tr>
+                </tbody>
+            </table>
+        </section>
+    </main>
+    
+    <div id="notification" class="notification"></div>
+    
+    <div id="websocket-error" 
+         style="display: none; background-color: #f44336; color: white; padding: 1rem; text-align: center; position: fixed; top: 0; left: 0; right: 0; z-index: 1000;">
+    </div>
+    
+    <script>
+        // Disable source map requests
+        if (window.Vue) {
+            Vue.config.productionTip = false;
+            Vue.config.devtools = false;
+        }
+
+        // Add global error handlers at the beginning of the script
+        window.onerror = function(message, source, lineno, colno, error) {
+            console.error(`[Global Error] ${message} at ${source}:${lineno}:${colno}`, error);
+        };
+
+        window.onunhandledrejection = function(event) {
+            console.error('[Unhandled Promise Rejection]', event.reason);
+        };
+
+        // WebSocket connection
+        let ws;
+        let reconnectAttempts = 0;
+        const maxReconnectAttempts = 5;
+        const reconnectDelay = 2000; // 2 seconds
+
+        function connectWebSocket() {
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
+            
+            ws.onopen = () => {
+                console.log('WebSocket connected');
+                reconnectAttempts = 0;
+                // Hide any error messages
+                document.getElementById('websocket-error').style.display = 'none';
+            };
+            
+            ws.onclose = () => {
+                console.log('WebSocket disconnected');
+                if (reconnectAttempts < maxReconnectAttempts) {
+                    setTimeout(() => {
+                        reconnectAttempts++;
+                        connectWebSocket();
+                    }, reconnectDelay);
+                    
+                    // Show reconnection message
+                    document.getElementById('websocket-error').style.display = 'block';
+                    document.getElementById('websocket-error').textContent = 
+                        'WebSocket disconnected. Make sure Redis is running. Attempting to reconnect...';
+                }
+            };
+            
+            ws.onerror = (error) => {
+                console.error('WebSocket error:', error);
+            };
+            
+            ws.onmessage = (event) => {
+                console.log('[WS] Received message:', event.data);
+                try {
+                    const data = event.data;
+                    // Always try to parse as JSON first
+                    try {
+                        console.log('[WS] Attempting JSON parse');
+                        const jsonData = JSON.parse(data);
+                        console.log('[WS] Successfully parsed JSON:', jsonData);
+                        switch(jsonData.type) {
+                            case 'orderbook':
+                                console.log('[WS] Processing orderbook update');
+                                updateOrderBook(jsonData.data);
+                                break;
+                            case 'trade':
+                                console.log('[WS] Processing trade update');
+                                updateTrades(jsonData.data);
+                                break;
+                            case 'error':
+                                console.error('[WS] Server error:', jsonData.message);
+                                break;
+                            default:
+                                console.warn('[WS] Unknown message type:', jsonData.type);
+                        }
+                    } catch (jsonError) {
+                        console.log('[WS] JSON parse failed, checking if HTML');
+                        // If JSON parsing fails, check if it's HTML content
+                        if (typeof data === 'string' && data.trim().startsWith('<tr>')) {
+                            console.log('[WS] Detected HTML content');
+                            // Handle HTML content
+                            if (data.includes('cancel-btn')) {
+                                console.log('[WS] Handling open orders HTML');
+                                const targetElement = document.getElementById('open-orders-body');
+                                if (targetElement) targetElement.innerHTML = data;
+                            } else if (data.includes('fill_price')) {
+                                console.log('[WS] Handling filled orders HTML');
+                                const targetElement = document.getElementById('filled-orders-body');
+                                if (targetElement) targetElement.innerHTML = data;
+                            } else if (data.includes('cancelled-orders')) {
+                                console.log('[WS] Handling cancelled orders HTML');
+                                const targetElement = document.getElementById('cancelled-orders-body');
+                                if (targetElement) targetElement.innerHTML = data;
+                            }
+                        } else {
+                            console.error('[WS] Invalid message format:', data);
+                            console.error('[WS] Parse error:', jsonError);
+                        }
+                    }
+                } catch (e) {
+                    console.error('[WS] Top level error:', e);
+                    console.error('[WS] Error details:', {
+                        message: e.message,
+                        stack: e.stack,
+                        data: event.data
+                    });
+                }
+            };
+        }
+
+        // Initialize WebSocket connection
+        connectWebSocket();
+
+        // Updated HTMX afterRequest handler with detailed error parsing
+        document.body.addEventListener('htmx:afterRequest', function(event) {
+            const xhr = event.detail.xhr;
+            const path = event.detail.requestConfig.path;
+            const orderStatusEl = document.getElementById('order-status');
+            
+            console.log('[HTMX After] Request path:', path);
+            console.log('[HTMX After] Response type:', xhr.getResponseHeader('Content-Type'));
+            console.log('[HTMX After] Raw response:', xhr.responseText);
+            
+            // Clear any previous status
+            if (orderStatusEl) {
+                orderStatusEl.textContent = '';
+                orderStatusEl.className = 'status-message';
+            }
+            
+            try {
+                // Check if this is an HTML endpoint
+                if (path.includes('/api/orders/open') || 
+                    path.includes('/api/orders/filled') || 
+                    path.includes('/api/orders/cancelled')) {
+                    // Let HTMX handle HTML responses normally
+                    console.log('[HTMX After] Handling HTML response');
+                    return;
+                }
+                
+                // For non-HTML endpoints, expect JSON
+                if (xhr.status >= 200 && xhr.status < 300) {
+                    console.log('[HTMX After] Parsing JSON response');
+                    const response = JSON.parse(xhr.responseText);
+                    
+                    if (response.status === 'accepted') {
+                        orderStatusEl.textContent = `Order accepted! Order ID: ${response.order_id}`;
+                        orderStatusEl.className = 'status-message status-success';
+                        showNotification(`Order accepted! ID: ${response.order_id}`, 'success');
+                        // Clear the form
+                        document.querySelector('.order-form').reset();
+                    } else if (response.status === 'rejected') {
+                        const reason = response.reason || 'Order was not accepted';
+                        orderStatusEl.textContent = `Error: ${reason}`;
+                        orderStatusEl.className = 'status-message status-error';
+                        showNotification(`Order rejected: ${reason}`, 'error');
+                    } else if (response.status === 'cancelled') {
+                        showNotification(`Order ${response.order_id} cancelled successfully`, 'success');
+                    }
+                } else {
+                    // Handle error responses
+                    let errorMessage = 'Unknown error';
+                    try {
+                        const errorResponse = JSON.parse(xhr.responseText);
+                        errorMessage = errorResponse.detail || errorResponse.message || errorResponse;
+                    } catch (parseError) {
+                        errorMessage = xhr.responseText || errorMessage;
+                    }
+                    
+                    if (orderStatusEl) {
+                        orderStatusEl.textContent = `Error: ${errorMessage}`;
+                        orderStatusEl.className = 'status-message status-error';
+                    }
+                    showNotification(`Error: ${errorMessage}`, 'error');
+                }
+            } catch (e) {
+                console.error('[HTMX After] Error processing response:', e);
+                console.error('[HTMX After] Response text:', xhr.responseText);
+                
+                if (orderStatusEl) {
+                    orderStatusEl.textContent = `Error processing response: ${e.message}`;
+                    orderStatusEl.className = 'status-message status-error';
+                }
+                showNotification(`Error processing response: ${e.message}`, 'error');
+            }
+        });
+        
+        function showNotification(message, type = 'info', duration = 5000) {
+            const notification = document.getElementById('notification');
+            
+            // For errors, we might want to show more details
+            if (type === 'error' && typeof message === 'object') {
+                try {
+                    // Try to format the error object nicely
+                    message = JSON.stringify(message, null, 2);
+                } catch (e) {
+                    // If that fails, just convert to string
+                    message = String(message);
+                }
+            }
+            
+            // Set notification content and style
+            notification.textContent = message;
+            notification.className = `notification notification-${type} show`;
+            
+            // Hide after duration
+            setTimeout(() => {
+                notification.className = 'notification';
+            }, duration);
+            
+            // For errors, also log to console
+            if (type === 'error') {
+                console.error('Error notification:', message);
+            }
+        }
+
+        function updateOrderBook(orderBook) {
+            try {
+                // Update bids
+                const bidsBody = document.getElementById('bids-body');
+                if (!bidsBody) {
+                    console.error('Bids body element not found');
+                    return;
+                }
+                
+                bidsBody.innerHTML = '';
+                
+                if (!orderBook.bids || orderBook.bids.length === 0) {
+                    const row = document.createElement('tr');
+                    row.innerHTML = '<td colspan="3">No buy orders</td>';
+                    bidsBody.appendChild(row);
+                } else {
+                    orderBook.bids.forEach(bid => {
+                        try {
+                            const row = document.createElement('tr');
+                            row.className = 'bid';
+                            
+                            const price = parseFloat(bid.price);
+                            const quantity = parseFloat(bid.quantity);
+                            const total = price * quantity;
+                            const isInternal = bid.internal_match === 'True';
+                            const internalBadge = isInternal ? '<span class="badge internal-badge">DARK</span>' : '';
+                            
+                            row.innerHTML = `
+                                <td class="price">${price.toFixed(2)} ${internalBadge}</td>
+                                <td>${quantity.toFixed(4)}</td>
+                                <td>${total.toFixed(2)}</td>
+                            `;
+                            
+                            bidsBody.appendChild(row);
+                        } catch (e) {
+                            console.error('Error processing bid:', e);
+                        }
+                    });
+                }
+                
+                // Update asks
+                const asksBody = document.getElementById('asks-body');
+                if (!asksBody) {
+                    console.error('Asks body element not found');
+                    return;
+                }
+                
+                asksBody.innerHTML = '';
+                
+                if (!orderBook.asks || orderBook.asks.length === 0) {
+                    const row = document.createElement('tr');
+                    row.innerHTML = '<td colspan="3">No sell orders</td>';
+                    asksBody.appendChild(row);
+                } else {
+                    orderBook.asks.forEach(ask => {
+                        try {
+                            const row = document.createElement('tr');
+                            row.className = 'ask';
+                            
+                            const price = parseFloat(ask.price);
+                            const quantity = parseFloat(ask.quantity);
+                            const total = price * quantity;
+                            const isInternal = ask.internal_match === 'True';
+                            const internalBadge = isInternal ? '<span class="badge internal-badge">DARK</span>' : '';
+                            
+                            row.innerHTML = `
+                                <td class="price">${price.toFixed(2)} ${internalBadge}</td>
+                                <td>${quantity.toFixed(4)}</td>
+                                <td>${total.toFixed(2)}</td>
+                            `;
+                            
+                            asksBody.appendChild(row);
+                        } catch (e) {
+                            console.error('Error processing ask:', e);
+                        }
+                    });
+                }
+            } catch (e) {
+                console.error('Error updating order book:', e);
+                const bidsBody = document.getElementById('bids-body');
+                const asksBody = document.getElementById('asks-body');
+                if (bidsBody) bidsBody.innerHTML = '<tr><td colspan="3">Could not load order book data</td></tr>';
+                if (asksBody) asksBody.innerHTML = '<tr><td colspan="3">Could not load order book data</td></tr>';
+            }
+        }
+
+        function updateTrades(trade) {
+            try {
+                const tradesBody = document.getElementById('trades-body');
+                if (!tradesBody) {
+                    console.error('Trades body element not found');
+                    return;
+                }
+                
+                // If this is the first trade, clear the "Loading" message
+                if (tradesBody.firstChild && tradesBody.firstChild.textContent.includes('Loading')) {
+                    tradesBody.innerHTML = '';
+                }
+                
+                const row = document.createElement('tr');
+                row.className = 'flash';
+                
+                const timestamp = new Date(parseInt(trade.timestamp) * 1000);
+                const timeStr = timestamp.toLocaleTimeString();
+                const price = parseFloat(trade.price);
+                const quantity = parseFloat(trade.quantity);
+                
+                row.innerHTML = `
+                    <td>${timeStr}</td>
+                    <td class="price">${price.toFixed(2)}</td>
+                    <td>${quantity.toFixed(4)}</td>
+                `;
+                
+                // Add to the top of the table
+                tradesBody.insertBefore(row, tradesBody.firstChild);
+                
+                // Limit to 50 entries
+                while (tradesBody.children.length > 50) {
+                    tradesBody.removeChild(tradesBody.lastChild);
+                }
+            } catch (e) {
+                console.error('Error updating trades:', e);
+            }
+        }
+    </script>
+</body>
+</html> 

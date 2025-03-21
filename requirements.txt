@@ -1,0 +1,18 @@
+fastapi==0.95.2
+uvicorn==0.22.0
+redis==4.5.5
+jinja2==3.1.2
+python-multipart==0.0.6
+websockets==11.0.3
+aioredis==2.0.1
+python-dotenv==1.0.0
+from fastapi import Form
+
+@app.post("/api/orders")
+async def create_order(
+    type: str = Form(...),
+    symbol: str = Form(...),
+    price: float = Form(...),
+    quantity: float = Form(...)
+):
+    # Then proceed with your order logic 

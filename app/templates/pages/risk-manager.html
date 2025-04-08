@@ -2,36 +2,11 @@
 
 {% block title %}Order Entry System - Risk Management{% endblock %}
 
-{% block risk_active %}active{% endblock %}
+{% block risk_manager_active %}active{% endblock %}
 
 {% block additional_head %}
 <script type="module">
     document.addEventListener('DOMContentLoaded', function() {
-        // Initialize tabs
-        const tabs = document.querySelectorAll('.tab-btn');
-        tabs.forEach(tab => {
-            tab.addEventListener('click', () => {
-                // Remove active class from all tabs
-                tabs.forEach(t => t.classList.remove('active'));
-                // Add active class to clicked tab
-                tab.classList.add('active');
-                
-                // Show/hide asset type sections
-                const assetType = tab.dataset.assetType;
-                document.querySelectorAll('.orders-section').forEach(section => {
-                    section.style.display = 'none';
-                });
-                
-                if (assetType === 'all') {
-                    document.querySelectorAll('.orders-section').forEach(section => {
-                        section.style.display = 'block';
-                    });
-                } else {
-                    document.querySelector(`.orders-section[data-asset-type="${assetType}"]`).style.display = 'block';
-                }
-            });
-        });
-        
         // Risk thresholds controls
         const thresholdInputs = document.querySelectorAll('.threshold-input');
         thresholdInputs.forEach(input => {
@@ -61,17 +36,11 @@
             // For this mockup, we'll just create some simulated data display
             
             createSimpleBarChart('exposure-chart', [
-                { label: 'Stocks', value: 42 },
-                { label: 'Futures', value: 28 },
-                { label: 'Options', value: 18 },
-                { label: 'Crypto', value: 12 }
+                { label: 'Stocks', value: 65 }
             ]);
             
             createSimpleBarChart('pnl-chart', [
-                { label: 'Stocks', value: 15, color: '#10b981' },
-                { label: 'Futures', value: -8, color: '#ef4444' },
-                { label: 'Options', value: 22, color: '#10b981' },
-                { label: 'Crypto', value: -5, color: '#ef4444' }
+                { label: 'Stocks', value: 15, color: '#10b981' }
             ]);
         }
         
@@ -127,6 +96,124 @@
             container.appendChild(barsContainer);
         }
     });
+    
+    // Function to cancel an order
+    window.cancelOrder = function(orderId) {
+        if (!orderId) return;
+        
+        // Disable the cancel button to prevent multiple clicks
+        const cancelBtn = document.querySelector(`button[onclick="cancelOrder('${orderId}')"]`);
+        if (cancelBtn) {
+            cancelBtn.disabled = true;
+            cancelBtn.textContent = "Cancelling...";
+        }
+        
+        if (confirm(`Are you sure you want to cancel order ${orderId}?`)) {
+            fetch(`/api/orders/${orderId}/cancel`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                }
+            })
+            .then(response => {
+                if (!response.ok) {
+                    // Handle 404 specifically for "not found or already cancelled"
+                    if (response.status === 404) {
+                        // Remove the row from the table immediately
+                        const orderRow = document.getElementById(`order-row-${orderId}`);
+                        if (orderRow) {
+                            orderRow.remove();
+                        }
+                        
+                        // Force refresh of the orders table
+                        const stocksOrdersBody = document.getElementById('stocks-orders-body');
+                        if (stocksOrdersBody) {
+                            stocksOrdersBody.setAttribute('hx-trigger', 'load');
+                            htmx.process(stocksOrdersBody);
+                        }
+                        
+                        // Show info toast instead of error
+                        showToast('Order already cancelled or not found', 'info');
+                        return Promise.reject(new Error('Order already cancelled or not found'));
+                    }
+                    
+                    return response.json().then(data => {
+                        throw new Error(data.detail || 'Failed to cancel order');
+                    });
+                }
+                return response.json();
+            })
+            .then(data => {
+                if (data.success) {
+                    // Remove the row from the table immediately
+                    const orderRow = document.getElementById(`order-row-${orderId}`);
+                    if (orderRow) {
+                        orderRow.remove();
+                    }
+                    
+                    // Refresh the orders table
+                    const stocksOrdersBody = document.getElementById('stocks-orders-body');
+                    if (stocksOrdersBody) {
+                        stocksOrdersBody.setAttribute('hx-trigger', 'load');
+                        htmx.process(stocksOrdersBody);
+                    }
+                    
+                    // Show success toast
+                    showToast('Order cancelled successfully', 'success');
+                } else {
+                    // Show error toast
+                    showToast(`Failed to cancel order: ${data.message || 'Unknown error'}`, 'error');
+                    
+                    // Re-enable the cancel button if something went wrong
+                    if (cancelBtn) {
+                        cancelBtn.disabled = false;
+                        cancelBtn.textContent = "Cancel";
+                    }
+                }
+            })
+            .catch(error => {
+                console.error('Error cancelling order:', error);
+                
+                // Don't show error toast for the case we already handled
+                if (error.message !== 'Order already cancelled or not found') {
+                    showToast(`Error cancelling order: ${error.message || 'Unknown error'}`, 'error');
+                    
+                    // Re-enable the cancel button if something went wrong
+                    if (cancelBtn) {
+                        cancelBtn.disabled = false;
+                        cancelBtn.textContent = "Cancel";
+                    }
+                }
+            });
+        } else {
+            // Re-enable the cancel button if user cancels the confirmation
+            if (cancelBtn) {
+                cancelBtn.disabled = false;
+                cancelBtn.textContent = "Cancel";
+            }
+        }
+    };
+    
+    // Function to show toast notifications
+    function showToast(message, type = 'info') {
+        // Create toast element
+        const toast = document.createElement('div');
+        toast.className = `toast ${type}`;
+        toast.textContent = message;
+        
+        // Append to body
+        document.body.appendChild(toast);
+        
+        // Show and then fade out
+        setTimeout(() => {
+            toast.classList.add('show');
+            
+            setTimeout(() => {
+                toast.classList.remove('show');
+                setTimeout(() => toast.remove(), 300);
+            }, 3000);
+        }, 100);
+    }
 </script>
 {% endblock %}
 
@@ -201,63 +288,6 @@
                         <span class="save-indicator">Saved</span>
                     </td>
                 </tr>
-                <tr>
-                    <td>Futures</td>
-                    <td>
-                        <input type="number" class="threshold-input" data-asset-type="futures" data-threshold-type="position" value="500000">
-                        <span class="save-indicator">Saved</span>
-                    </td>
-                    <td>
-                        <input type="number" class="threshold-input" data-asset-type="futures" data-threshold-type="order-size" value="50000">
-                        <span class="save-indicator">Saved</span>
-                    </td>
-                    <td>
-                        <input type="number" class="threshold-input" data-asset-type="futures" data-threshold-type="loss-limit" value="25000">
-                        <span class="save-indicator">Saved</span>
-                    </td>
-                    <td>
-                        <input type="number" class="threshold-input" data-asset-type="futures" data-threshold-type="dark-pool" value="20" min="0" max="100">
-                        <span class="save-indicator">Saved</span>
-                    </td>
-                </tr>
-                <tr>
-                    <td>Options</td>
-                    <td>
-                        <input type="number" class="threshold-input" data-asset-type="options" data-threshold-type="position" value="300000">
-                        <span class="save-indicator">Saved</span>
-                    </td>
-                    <td>
-                        <input type="number" class="threshold-input" data-asset-type="options" data-threshold-type="order-size" value="30000">
-                        <span class="save-indicator">Saved</span>
-                    </td>
-                    <td>
-                        <input type="number" class="threshold-input" data-asset-type="options" data-threshold-type="loss-limit" value="15000">
-                        <span class="save-indicator">Saved</span>
-                    </td>
-                    <td>
-                        <input type="number" class="threshold-input" data-asset-type="options" data-threshold-type="dark-pool" value="15" min="0" max="100">
-                        <span class="save-indicator">Saved</span>
-                    </td>
-                </tr>
-                <tr>
-                    <td>Crypto</td>
-                    <td>
-                        <input type="number" class="threshold-input" data-asset-type="crypto" data-threshold-type="position" value="200000">
-                        <span class="save-indicator">Saved</span>
-                    </td>
-                    <td>
-                        <input type="number" class="threshold-input" data-asset-type="crypto" data-threshold-type="order-size" value="20000">
-                        <span class="save-indicator">Saved</span>
-                    </td>
-                    <td>
-                        <input type="number" class="threshold-input" data-asset-type="crypto" data-threshold-type="loss-limit" value="10000">
-                        <span class="save-indicator">Saved</span>
-                    </td>
-                    <td>
-                        <input type="number" class="threshold-input" data-asset-type="crypto" data-threshold-type="dark-pool" value="10" min="0" max="100">
-                        <span class="save-indicator">Saved</span>
-                    </td>
-                </tr>
             </tbody>
         </table>
     </div>
@@ -268,11 +298,7 @@
     <h2>All Orders</h2>
     
     <div class="asset-type-tabs">
-        <button class="tab-btn active" data-asset-type="all">All</button>
-        <button class="tab-btn" data-asset-type="stocks">Stocks</button>
-        <button class="tab-btn" data-asset-type="futures">Futures</button>
-        <button class="tab-btn" data-asset-type="options">Options</button>
-        <button class="tab-btn" data-asset-type="crypto">Crypto</button>
+        <button class="tab-btn active" data-asset-type="stocks">Stocks</button>
     </div>
     
     <!-- Stocks Orders -->
@@ -294,75 +320,6 @@
             </thead>
             <tbody id="stocks-orders-body" hx-get="/api/risk/orders?asset_type=stocks" hx-trigger="load, every 5s" hx-swap="innerHTML">
                 <tr><td colspan="9">Loading stock orders...</td></tr>
-            </tbody>
-        </table>
-    </div>
-    
-    <!-- Futures Orders -->
-    <div class="orders-section" data-asset-type="futures" style="display: none;">
-        <h3>Futures Orders</h3>
-        <table class="orders-table">
-            <thead>
-                <tr>
-                    <th>ID</th>
-                    <th>Symbol</th>
-                    <th>Type</th>
-                    <th>Price</th>
-                    <th>Quantity</th>
-                    <th>Status</th>
-                    <th>Time</th>
-                    <th>Trader</th>
-                    <th>Action</th>
-                </tr>
-            </thead>
-            <tbody id="futures-orders-body" hx-get="/api/risk/orders?asset_type=futures" hx-trigger="load, every 5s" hx-swap="innerHTML">
-                <tr><td colspan="9">Loading futures orders...</td></tr>
-            </tbody>
-        </table>
-    </div>
-    
-    <!-- Options Orders -->
-    <div class="orders-section" data-asset-type="options" style="display: none;">
-        <h3>Options Orders</h3>
-        <table class="orders-table">
-            <thead>
-                <tr>
-                    <th>ID</th>
-                    <th>Symbol</th>
-                    <th>Type</th>
-                    <th>Price</th>
-                    <th>Quantity</th>
-                    <th>Status</th>
-                    <th>Time</th>
-                    <th>Trader</th>
-                    <th>Action</th>
-                </tr>
-            </thead>
-            <tbody id="options-orders-body" hx-get="/api/risk/orders?asset_type=options" hx-trigger="load, every 5s" hx-swap="innerHTML">
-                <tr><td colspan="9">Loading options orders...</td></tr>
-            </tbody>
-        </table>
-    </div>
-    
-    <!-- Crypto Orders -->
-    <div class="orders-section" data-asset-type="crypto" style="display: none;">
-        <h3>Crypto Orders</h3>
-        <table class="orders-table">
-            <thead>
-                <tr>
-                    <th>ID</th>
-                    <th>Symbol</th>
-                    <th>Type</th>
-                    <th>Price</th>
-                    <th>Quantity</th>
-                    <th>Status</th>
-                    <th>Time</th>
-                    <th>Trader</th>
-                    <th>Action</th>
-                </tr>
-            </thead>
-            <tbody id="crypto-orders-body" hx-get="/api/risk/orders?asset_type=crypto" hx-trigger="load, every 5s" hx-swap="innerHTML">
-                <tr><td colspan="9">Loading crypto orders...</td></tr>
             </tbody>
         </table>
     </div>
@@ -538,6 +495,41 @@
         .risk-charts {
             grid-template-columns: 1fr;
         }
+    }
+    
+    /* Toast notifications */
+    .toast {
+        position: fixed;
+        bottom: 20px;
+        right: 20px;
+        padding: 12px 24px;
+        background: var(--card-dark);
+        color: var(--text-dark);
+        border-left: 4px solid var(--primary-color);
+        border-radius: 4px;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+        opacity: 0;
+        transform: translateY(20px);
+        transition: opacity 0.3s, transform 0.3s;
+        z-index: 1000;
+        max-width: 350px;
+    }
+    
+    .toast.show {
+        opacity: 1;
+        transform: translateY(0);
+    }
+    
+    .toast.success {
+        border-left-color: var(--success-color);
+    }
+    
+    .toast.error {
+        border-left-color: var(--danger-color);
+    }
+    
+    .toast.warning {
+        border-left-color: #f59e0b;
     }
 </style>
 {% endblock %} 

@@ -49,6 +49,7 @@ from .api import (
     market_router,
     positions_router
 )
+from .api.chatbot import router as chatbot_router
 
 # Create FastAPI application
 app = FastAPI(
@@ -66,6 +67,7 @@ app.include_router(orderbook_router)
 app.include_router(darkpool_router)
 app.include_router(market_router)
 app.include_router(positions_router)
+app.include_router(chatbot_router, prefix="/api", tags=["chatbot"])
 
 # Configure templates
 templates = Jinja2Templates(directory="app/templates")

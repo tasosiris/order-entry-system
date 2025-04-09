@@ -12,10 +12,10 @@ logger = logging.getLogger("oes.risk")
 
 # Risk parameters
 MAX_ORDER_SIZE = float(os.getenv("MAX_ORDER_SIZE", "1000000"))  # Maximum order size
-MIN_ORDER_SIZE = float(os.getenv("MIN_ORDER_SIZE", "0.01"))     # Minimum order size
-MAX_PRICE = float(os.getenv("MAX_PRICE", "1000000"))           # Maximum price
-MIN_PRICE = float(os.getenv("MIN_PRICE", "0.01"))              # Minimum price
-PRICE_DEVIATION_PCT = float(os.getenv("PRICE_DEVIATION_PCT", "10.0"))  # Maximum deviation % from last price
+MIN_ORDER_SIZE = float(os.getenv("MIN_ORDER_SIZE", "0.0001"))   # Minimum order size
+MAX_PRICE = float(os.getenv("MAX_PRICE", "10000000"))          # Maximum price
+MIN_PRICE = float(os.getenv("MIN_PRICE", "0.0001"))            # Minimum price
+PRICE_DEVIATION_PCT = float(os.getenv("PRICE_DEVIATION_PCT", "100.0"))  # Maximum deviation % from last price
 
 class RiskManager:
     """Risk management system for the Order Entry System."""

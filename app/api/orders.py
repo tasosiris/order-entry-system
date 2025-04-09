@@ -72,16 +72,7 @@ SAMPLE_ORDERS = {
 }
 
 @router.post("/api/orders")
-async def create_order(
-    type: str = Form(...),
-    symbol: str = Form(...),
-    price: float = Form(...),
-    quantity: float = Form(...),
-    order_type: str = Form("limit"),
-    tif: str = Form("day"),
-    instrument: str = Form("Stocks"),
-    internal: bool = Form(False)
-):
+async def create_order(order_data: dict):
     """
     Submit a new order to the system.
 
@@ -92,26 +83,31 @@ async def create_order(
     - quantity: Amount to buy/sell
     
     Optional fields:
-    - order_type: "limit" or "market"
-    - tif: Time in force ("day", "gtc", "ioc", "fok")
-    - instrument: Instrument type ("Stocks", "Futures", "Options", "Crypto")
-    - internal: Whether to route to dark pool (internal matching)
+    - order_type: "limit" or "market" (default: "limit")
+    - tif: Time in force ("day", "gtc", "ioc", "fok") (default: "day")
+    - instrument: Instrument type ("Stocks", "Futures", "Options", "Crypto") (default: "Stocks")
+    - internal: Whether to route to dark pool (default: False)
     """
     try:
         # Start latency measurement
         start_time = time.time() * 1000  # Convert to milliseconds
         
         # Log the incoming order
-        logger.info(f"Received order: {type} {quantity} {symbol} @ {price} (internal={internal})")
+        logger.info(f"Received order: {order_data}")
+
+        # Set default values for optional fields
+        order_data.setdefault("order_type", "limit")
+        order_data.setdefault("tif", "day")
+        order_data.setdefault("instrument", "Stocks")
+        order_data.setdefault("internal", False)
 
         # Define the required fields for an order
         required_fields = ["type", "symbol", "price", "quantity"]
         
         # Check if all required fields are present in the order
         for field in required_fields:
-            if field not in {"type", "symbol", "price", "quantity"}:
+            if field not in order_data:
                 logger.warning(f"Missing required field: {field}")
-                # Raise an HTTPException with a 400 status code for missing fields
                 raise HTTPException(
                     status_code=400,
                     detail=f"Missing required field: {field}"
@@ -119,49 +115,34 @@ async def create_order(
 
         # Validate the 'price' field
         try:
-            price = float(price)
+            order_data["price"] = float(order_data["price"])
         except (ValueError, TypeError) as e:
-            logger.warning(f"Invalid price: {price} - {e}")
-            # Raise an HTTPException with a 400 status code for invalid price
+            logger.warning(f"Invalid price: {order_data.get('price')} - {e}")
             raise HTTPException(
                 status_code=400,
-                detail=f"Invalid price value: {price}. Must be a number."
+                detail=f"Invalid price value: {order_data.get('price')}. Must be a number."
             )
 
         # Validate the 'quantity' field
         try:
-            quantity = float(quantity)
+            order_data["quantity"] = float(order_data["quantity"])
         except (ValueError, TypeError) as e:
-            logger.warning(f"Invalid quantity: {quantity} - {e}")
-            # Raise an HTTPException with a 400 status code for invalid quantity
+            logger.warning(f"Invalid quantity: {order_data.get('quantity')} - {e}")
             raise HTTPException(
                 status_code=400,
-                detail=f"Invalid quantity value: {quantity}. Must be a number."
+                detail=f"Invalid quantity value: {order_data.get('quantity')}. Must be a number."
             )
 
         # Validate the 'type' field
-        if type.lower() not in ["buy", "sell"]:
-            logger.warning(f"Invalid order type: {type}")
-            # Raise an HTTPException with a 400 status code for invalid order type
+        if order_data["type"].lower() not in ["buy", "sell"]:
+            logger.warning(f"Invalid order type: {order_data['type']}")
             raise HTTPException(
                 status_code=400,
-                detail=f"Invalid order type: {type}. Must be 'buy' or 'sell'."
+                detail=f"Invalid order type: {order_data['type']}. Must be 'buy' or 'sell'."
             )
-
-        # Create order object with all fields
-        order = {
-            "type": type,
-            "symbol": symbol,
-            "price": price,
-            "quantity": quantity,
-            "order_type": order_type,
-            "tif": tif,
-            "instrument": instrument,
-            "internal": internal
-        }
         
         # Submit the order to the order book for processing
-        result = await order_book.submit_order(order)
+        result = await order_book.submit_order(order_data)
         
         # End latency measurement
         end_time = time.time() * 1000  # Convert to milliseconds
@@ -180,36 +161,27 @@ async def create_order(
         # Check if the order was rejected
         if result.get("status") == "rejected":
             logger.warning(f"Order rejected: {result.get('reason')}")
-            # Return a JSON response with a 400 status code and rejection reason
             return JSONResponse(
                 status_code=400,
                 content={
                     "status": "rejected",
                     "reason": result.get("reason", "Order was not accepted"),
                     "latency": latency
-                },
-                headers={"Content-Type": "application/json"}
+                }
             )
 
         # Log successful order
         logger.info(f"Order accepted: {result} (latency: {latency}ms)")
-        # Return the successful order result
-        return JSONResponse(
-            content=result,
-            headers={"Content-Type": "application/json"}
-        )
+        return JSONResponse(content=result)
 
-    except HTTPException as http_exc:
-        # Re-raise the HTTPException to be handled by FastAPI
+    except HTTPException:
         raise
     except Exception as e:
         # Log the unexpected error
         logger.error(f"Unexpected error in create_order: {e}", exc_info=True)
-        # Return a JSON response with a 500 status code for server errors
         return JSONResponse(
             status_code=500,
-            content={"status": "error", "message": f"Server error: {str(e)}"},
-            headers={"Content-Type": "application/json"}
+            content={"status": "error", "message": f"Server error: {str(e)}"}
         )
 
 @router.get("/api/orders/open", operation_id="get_open_orders")

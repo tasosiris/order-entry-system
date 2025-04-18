@@ -6,6 +6,7 @@
     <title>{% block title %}Order Entry System{% endblock %}</title>
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
     <link rel="stylesheet" href="/static/css/style.css">
+    <link rel="stylesheet" href="/css/orderbook.css">
     <script src="https://unpkg.com/htmx.org@1.9.2"></script>
     <script src="/static/js/main.js" defer></script>
     {% block additional_styles %}{% endblock %}
@@ -15,6 +16,9 @@
             --secondary-color: #0088cc;
             --success-color: #00ff88;
             --danger-color: #ff3b3b;
+            --warning-color: #ffbb00;
+            --info-color: #00b4ff;
+            --error-color: #ff3b3b;
             --background-dark: #000000;
             --card-dark: #0a0a0a;
             --text-dark: #ffffff;
@@ -387,10 +391,9 @@
     <header>
         <a href="/" class="logo">OES</a>
         <nav class="main-nav">
-            <a href="/stocks" class="nav-link">Stocks</a>
-            <a href="/options" class="nav-link">Options</a>
-            <a href="/crypto" class="nav-link">Crypto</a>
-            <a href="/risk-manager" class="nav-link">Risk Manager</a>
+            <a href="/stocks" class="nav-link {% block stocks_active %}{% endblock %}">Stocks</a>
+            <a href="/risk-manager" class="nav-link {% block risk_manager_active %}{% endblock %}">Risk Manager</a>
+            <a href="/accounts" class="nav-link {% block accounts_active %}{% endblock %}">Accounts</a>
         </nav>
         <div class="header-controls">
             <span id="connection-status">Connected</span>

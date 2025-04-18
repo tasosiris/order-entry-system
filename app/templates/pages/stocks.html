@@ -4,241 +4,402 @@
 
 {% block stocks_active %}active{% endblock %}
 
-{% block additional_head %}
-<script type="module">
-    import { Autocomplete, SYMBOL_LISTS } from '/static/js/modules/autocomplete.js';
-    import { OrderBook } from '/static/js/modules/orderbook.js';
-
-    document.addEventListener('DOMContentLoaded', function() {
-        // Initialize autocomplete for stock symbols
-        const symbolInput = document.getElementById('symbol');
-        if (symbolInput) {
-            new Autocomplete(symbolInput, {
-                symbols: SYMBOL_LISTS.stocks,
-                onSelect: (symbol) => {
-                    // Update order books when symbol changes
-                    if (window.orderBook) {
-                        window.orderBook.setSymbol(symbol);
-                    }
-                }
-            });
-        }
-
-        // Initialize order books
-        window.orderBook = new OrderBook({
-            internalSelector: '#internal-book',
-            externalSelector: '#external-book',
-            internalEndpoint: '/api/orderbook/internal?asset_type=stocks',
-            externalEndpoint: '/api/orderbook/external?asset_type=stocks'
-        });
-
-        // Order type button selection
-        const marketBtn = document.getElementById('market-order-btn');
-        const limitBtn = document.getElementById('limit-order-btn');
-        const priceField = document.getElementById('price-field');
-        const orderTypeInput = document.getElementById('order-type-input');
-
-        marketBtn.addEventListener('click', () => {
-            marketBtn.classList.add('active');
-            limitBtn.classList.remove('active');
-            priceField.style.display = 'none';
-            orderTypeInput.value = 'market';
-        });
-
-        limitBtn.addEventListener('click', () => {
-            limitBtn.classList.add('active');
-            marketBtn.classList.remove('active');
-            priceField.style.display = 'block';
-            orderTypeInput.value = 'limit';
-        });
-
-        // Set market order by default
-        marketBtn.click();
-
-        // Handle buy/sell button clicks
-        const orderForm = document.getElementById('order-form');
-        const typeInput = document.getElementById('type');
-        const buyButton = document.querySelector('.buy-btn');
-        const sellButton = document.querySelector('.sell-btn');
-
-        if (buyButton && sellButton && typeInput) {
-            buyButton.addEventListener('click', () => {
-                typeInput.value = 'buy';
-            });
-
-            sellButton.addEventListener('click', () => {
-                typeInput.value = 'sell';
-            });
-        }
-    });
-</script>
-{% endblock %}
-
 {% block content %}
 <div class="trading-container">
-    <!-- Order Entry Panel -->
-    <section class="panel order-entry">
-        <h2>Stocks Trading</h2>
-        
-        <form id="order-form" class="order-form" hx-post="/api/orders" hx-trigger="submit" hx-target="#order-status">
-            <!-- Symbol Selection -->
-            <div>
-                <label for="symbol">Symbol</label>
-                <div class="autocomplete-container narrow-input">
-                    <input 
-                        type="text" 
-                        id="symbol" 
-                        name="symbol" 
-                        required 
-                        placeholder="Symbol..."
-                    >
-                </div>
-            </div>
-            
-            <!-- Order Type Selection -->
-            <div class="order-type-options">
-                <label>Order Type</label>
-                <div class="order-type-buttons">
-                    <button type="button" id="market-order-btn" class="order-type-btn">Market</button>
-                    <button type="button" id="limit-order-btn" class="order-type-btn">Limit</button>
-                    <input type="hidden" id="order-type-input" name="order_type" value="market">
-                </div>
-            </div>
-            
-            <!-- Price (only visible for limit orders) -->
-            <div id="price-field">
-                <label for="price">Price</label>
-                <input type="number" id="price" name="price" step="0.01" min="0.01" placeholder="Price" class="narrow-input">
-            </div>
-            
-            <!-- Quantity -->
-            <div>
-                <label for="quantity">Quantity</label>
-                <input type="number" id="quantity" name="quantity" step="1" min="1" required placeholder="Qty" class="narrow-input">
-            </div>
-            
-            <!-- Time-in-Force Options -->
-            <div>
-                <label for="tif">Time in Force</label>
-                <select id="tif" name="tif" class="narrow-input">
-                    <option value="day">Day</option>
-                    <option value="gtc">Good Till Cancelled</option>
-                    <option value="ioc">Immediate or Cancel</option>
-                    <option value="fok">Fill or Kill</option>
+    <!-- Top row: Account Selection, Market View, and Stock Trading -->
+    <div class="top-row-container">
+        <!-- Account Selection Panel -->
+        <section class="panel account-panel highlight-panel">
+            <h2>Account Selection</h2>
+            <div class="account-selection">
+                <label for="account-selector">Trading Account</label>
+                <select id="account-selector" class="account-selector">
+                    <option value="">Select an account...</option>
+                    <!-- Account options will be populated dynamically -->
                 </select>
+                <div class="account-balance">Balance: <span id="account-balance-display">$0.00</span></div>
             </div>
-            
-            <!-- Dark Pool Routing Option -->
-            <div class="routing-option">
-                <div class="routing-toggle">
-                    <label class="toggle-switch">
-                        <input type="checkbox" name="internal" id="internal-routing">
-                        <span class="toggle-slider"></span>
-                    </label>
-                    <span>Route to Dark Pool</span>
+        </section>
+        
+        <!-- Ticker Selection Panel -->
+        <section class="panel ticker-panel">
+            <div class="market-info">
+                <h2>Market View</h2>
+                <div class="symbol-selection">
+                    <label for="symbol">Select Symbol</label>
+                    <div class="autocomplete-container">
+                        <input 
+                            type="text" 
+                            id="symbol" 
+                            name="symbol" 
+                            required 
+                            placeholder="Enter symbol (e.g. AAPL)"
+                            class="symbol-input"
+                        >
+                        <button type="button" id="select-symbol-btn" class="select-btn">Select</button>
+                    </div>
                 </div>
+                <div class="selected-ticker-display">Current Symbol: <span id="selected-ticker">No ticker selected</span></div>
+                <div id="market-timestamp" class="market-timestamp">Last update: <span id="last-order-time">-</span></div>
             </div>
-            
-            <!-- Buy/Sell Buttons -->
-            <div class="actions">
-                <button type="submit" class="buy-btn" data-order-type="buy">BUY</button>
-                <button type="submit" class="sell-btn" data-order-type="sell">SELL</button>
+        </section>
+
+        <!-- Order Entry Panel -->
+        <section class="panel order-entry">
+            <h2>Stock Trading</h2>
+            <form id="order-form" class="order-form">
+                <!-- Order Type Selection -->
+                <div class="order-type-options">
+                    <label>Order Type</label>
+                    <div class="order-type-buttons">
+                        <button type="button" id="limit-order-btn" class="order-type-btn">Limit</button>
+                        <button type="button" id="market-order-btn" class="order-type-btn">Market</button>
+                        <input type="hidden" id="order-type-input" name="order_type" value="limit">
+                    </div>
+                </div>
+                
+                <!-- Price (only visible for limit orders) -->
+                <div id="price-field">
+                    <label for="price">Price</label>
+                    <input type="number" id="price" name="price" step="0.01" min="0.01" placeholder="Price" class="narrow-input">
+                </div>
+                
+                <!-- Quantity -->
+                <div>
+                    <label for="quantity">Quantity</label>
+                    <input type="number" id="quantity" name="quantity" step="1" min="1" required placeholder="Qty" class="narrow-input">
+                </div>
+                
+                <!-- Time-in-Force Options -->
+                <div>
+                    <label for="tif">Time in Force</label>
+                    <select id="tif" name="tif" class="narrow-input">
+                        <option value="day">Day</option>
+                        <option value="gtc">Good Till Cancelled</option>
+                        <option value="ioc">Immediate or Cancel</option>
+                        <option value="fok">Fill or Kill</option>
+                    </select>
+                </div>
+                
+                <input type="hidden" name="internal" id="internal-routing" value="true">
+                <input type="hidden" name="symbol" id="trading-symbol">
                 <input type="hidden" id="type" name="type" value="buy">
                 <input type="hidden" name="asset_type" value="stocks">
+                <input type="hidden" name="account_id" id="account-id">
+                
+                <!-- Buy/Sell Buttons -->
+                <div class="actions">
+                    <button type="button" id="buy-btn" class="buy-btn">BUY</button>
+                    <button type="button" id="sell-btn" class="sell-btn">SELL</button>
+                </div>
+            </form>
+            
+            <div id="order-status" class="status-message"></div>
+        </section>
+    </div>
+    
+    <!-- Middle row: My Orders and Market Order Book -->
+    <div class="middle-row-container">
+        <!-- My Orders Panel -->
+        <section class="panel orders-panel">
+            <h2>My Orders</h2>
+            <div id="my-orders" class="orders-list">
+                <table class="my-orders-table">
+                    <thead>
+                        <tr>
+                            <th>Type</th>
+                            <th>Symbol</th>
+                            <th>Price</th>
+                            <th>Quantity</th>
+                            <th>Total</th>
+                            <th>Time</th>
+                            <th>Status</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
             </div>
-        </form>
+        </section>
         
-        <div id="order-status" class="status-message"></div>
-        
-        <div id="latency-stats" class="latency-indicator">
-            Avg. Latency: <span id="latency-value">12ms</span>
-        </div>
-    </section>
-
-    <!-- Order Book Panels -->
-    <section class="panel">
-        <h2>Order Books</h2>
-        
-        <div class="tabs">
-            <button class="tab-btn active" data-tab="internal">Internal Book</button>
-            <button class="tab-btn" data-tab="external">External Book</button>
-        </div>
-        
-        <div data-tab-content="internal" id="internal-book" class="order-book-panel">
-            <h3>Internal Order Book</h3>
-            <!-- Order book content will be dynamically populated by JavaScript -->
-        </div>
-        
-        <div data-tab-content="external" id="external-book" class="order-book-panel" style="display: none;">
-            <h3>External Order Book</h3>
-            <!-- Order book content will be dynamically populated by JavaScript -->
-        </div>
-    </section>
-
-    <!-- Orders Panel -->
-    <section class="panel">
-        <h2>Orders</h2>
-        
-        <div class="tabs">
-            <button class="tab-btn active" data-tab="open">Open</button>
-            <button class="tab-btn" data-tab="filled">Filled</button>
-            <button class="tab-btn" data-tab="cancelled">Cancelled</button>
-        </div>
-        
-        <div data-tab-content="open" class="order-table-section">
-            <table class="orders-table">
-                <thead>
-                    <tr>
-                        <th>Symbol</th>
-                        <th>Price</th>
-                        <th>Quantity</th>
-                    </tr>
-                </thead>
-                <tbody id="open-orders-body">
-                    <tr><td colspan="3">Loading orders...</td></tr>
-                </tbody>
-            </table>
-        </div>
-        
-        <div data-tab-content="filled" class="order-table-section" style="display: none;">
-            <table class="orders-table">
-                <thead>
-                    <tr>
-                        <th>Symbol</th>
-                        <th>Price</th>
-                        <th>Quantity</th>
-                    </tr>
-                </thead>
-                <tbody id="filled-orders-body">
-                    <tr><td colspan="3">Loading orders...</td></tr>
-                </tbody>
-            </table>
-        </div>
-        
-        <div data-tab-content="cancelled" class="order-table-section" style="display: none;">
-            <table class="orders-table">
-                <thead>
-                    <tr>
-                        <th>Symbol</th>
-                        <th>Price</th>
-                        <th>Quantity</th>
-                    </tr>
-                </thead>
-                <tbody id="cancelled-orders-body">
-                    <tr><td colspan="3">Loading orders...</td></tr>
-                </tbody>
-            </table>
-        </div>
-    </section>
+        <!-- External Order Book Panel -->
+        <section class="panel">
+            <h2>Market Order Book</h2>
+            <div id="external-book" class="order-book">
+                <div class="book-content">
+                    <div class="book-side bids">
+                        <h3>Bids (Buy Orders)</h3>
+                        <table class="book-table">
+                            <thead>
+                                <tr>
+                                    <th>Price</th>
+                                    <th>Quantity</th>
+                                    <th>Total</th>
+                                    <th>Time</th>
+                                </tr>
+                            </thead>
+                            <tbody class="bids-body"></tbody>
+                        </table>
+                    </div>
+                    <div class="book-side asks">
+                        <h3>Asks (Sell Orders)</h3>
+                        <table class="book-table">
+                            <thead>
+                                <tr>
+                                    <th>Price</th>
+                                    <th>Quantity</th>
+                                    <th>Total</th>
+                                    <th>Time</th>
+                                </tr>
+                            </thead>
+                            <tbody class="asks-body"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </div>
 </div>
+
+<!-- Trade Details Modal -->
+<div id="trade-modal" class="modal">
+    <div class="modal-container">
+        <div class="modal-content">
+            <h3>Trade Details</h3>
+            <div id="trade-details" class="trade-details">
+                <!-- Trade details will be dynamically populated -->
+            </div>
+            <div class="modal-actions">
+                <button type="button" class="close-modal">Close</button>
+            </div>
+        </div>
+        <button class="modal-close close-modal">&times;</button>
+    </div>
+</div>
+
+<!-- Order Edit Modal -->
+<div id="order-modal" class="modal">
+    <div class="modal-container">
+        <div class="modal-content">
+            <div id="order-details" class="order-details">
+                <!-- Order details will be dynamically populated -->
+            </div>
+            
+            <form id="edit-order-form" class="edit-order-form">
+                <input type="hidden" id="edit-order-id">
+                
+                <div class="form-row">
+                    <label for="edit-order-price">Price</label>
+                    <input type="number" id="edit-order-price" step="0.01" min="0.01" required>
+                </div>
+                
+                <div class="form-row">
+                    <label for="edit-order-quantity">Quantity</label>
+                    <input type="number" id="edit-order-quantity" step="1" min="1" required>
+                </div>
+                
+                <div id="edit-order-message" class="message"></div>
+                
+                <div class="modal-actions">
+                    <button type="submit" class="save-btn">Update Order</button>
+                    <button type="button" class="cancel-btn close-modal">Cancel</button>
+                </div>
+            </form>
+        </div>
+        <button class="modal-close close-modal">&times;</button>
+    </div>
+</div>
+
+<!-- Audio for notifications -->
+<audio id="order-match-sound" preload="auto">
+    <source src="/static/audio/order-match.wav" type="audio/wav">
+</audio>
+
+<!-- Other modals and content -->
 {% endblock %}
 
 {% block additional_styles %}
 <style>
     .trading-container {
         display: flex;
-        flex-wrap: wrap;
+        flex-direction: column;
         gap: 1rem;
+    }
+
+    /* Top row layout */
+    .top-row-container {
+        display: grid;
+        grid-template-columns: 1fr 1fr 1fr;
+        gap: 1rem;
+        margin-bottom: 1rem;
+    }
+    
+    /* Middle row layout */
+    .middle-row-container {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 1rem;
+        margin-bottom: 1rem;
+    }
+    
+    /* Bottom row layout */
+    .bottom-row-container {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 1rem;
+        margin-bottom: 1rem;
+    }
+    
+    /* Responsive layout adjustments */
+    @media (max-width: 1200px) {
+        .top-row-container {
+            grid-template-columns: 1fr 1fr;
+        }
+        
+        .middle-row-container,
+        .bottom-row-container {
+            grid-template-columns: 1fr;
+        }
+    }
+    
+    @media (max-width: 768px) {
+        .top-row-container,
+        .middle-row-container,
+        .bottom-row-container {
+            grid-template-columns: 1fr;
+        }
+    }
+
+    /* Add a visual indicator for updated rows */
+    .row-updated {
+        background-color: rgba(0, 180, 255, 0.2) !important;
+        transition: background-color 3s ease;
+        animation: flash-update 2s ease;
+    }
+    
+    @keyframes flash-update {
+        0% { background-color: rgba(0, 180, 255, 0.5); }
+        100% { background-color: rgba(0, 180, 255, 0.2); }
+    }
+
+    .ticker-panel {
+        padding: 1rem;
+        background: var(--card-dark);
+        border-radius: 8px;
+    }
+    
+    .symbol-selection {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+        margin: 1rem 0;
+    }
+    
+    .symbol-input {
+        width: 200px;
+        padding: 0.5rem;
+        font-size: 1rem;
+        border: 1px solid var(--border-dark);
+        border-radius: 4px;
+        background: var(--input-bg);
+        color: var(--text-dark);
+    }
+    
+    .autocomplete-container {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+    
+    .select-btn {
+        padding: 0.5rem 1rem;
+        background: var(--primary-color);
+        color: white;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        font-weight: bold;
+    }
+    
+    .book-content {
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+    }
+    
+    .book-side {
+        flex: 1;
+    }
+    
+    .book-table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 0.5rem;
+    }
+    
+    .book-table th,
+    .book-table td {
+        padding: 0.5rem;
+        text-align: right;
+        border-bottom: 1px solid var(--border-dark-light);
+    }
+    
+    .book-table th:first-child,
+    .book-table td:first-child {
+        text-align: left;
+    }
+    
+    .bids-body tr {
+        color: var(--success-color);
+    }
+    
+    .asks-body tr {
+        color: var(--danger-color);
+    }
+    
+    .order-book-panel {
+        background: var(--card-dark);
+        border-radius: 8px;
+        padding: 1rem;
+        height: auto;
+        max-height: 600px;
+        overflow: auto;
+    }
+    
+    .order-entry {
+        background: var(--card-dark);
+        border-radius: 8px;
+        padding: 1rem;
+    }
+    
+    .orders-panel {
+        background: var(--card-dark);
+        border-radius: 8px;
+        padding: 1rem;
+        max-height: 400px;
+        overflow: auto;
+    }
+    
+    /* Keep existing styles below */
+    .selected-ticker-display {
+        font-size: 16px;
+        font-weight: bold;
+        margin-top: 10px;
+        padding: 8px;
+        background-color: var(--card-dark);
+        border-radius: 4px;
+        text-align: center;
+    }
+    
+    #selected-ticker {
+        color: var(--primary-color);
+    }
+    
+    .book-instructions {
+        color: var(--text-muted);
+        font-style: italic;
+        text-align: center;
+        padding: 20px;
     }
     
     .trading-container .panel {
@@ -248,243 +409,2561 @@
     }
     
     .narrow-input {
-        max-width: 150px;
+        max-width: 250px;
     }
     
     .order-type-buttons {
         display: flex;
         gap: 0.5rem;
-        margin-top: 0.5rem;
+        margin-top: 0.25rem;
     }
     
     .order-type-btn {
-        flex: 1;
-        padding: 0.75rem 1rem;
-        background-color: var(--card-dark);
+        padding: 0.5rem 1rem;
         border: 1px solid var(--border-dark);
+        background: transparent;
         color: var(--text-dark);
-        border-radius: 0.5rem;
         cursor: pointer;
-        text-align: center;
         transition: all 0.2s;
     }
     
     .order-type-btn.active {
-        background-color: var(--primary-color);
+        background: var(--card-dark);
         border-color: var(--primary-color);
-        color: white;
+        color: var(--primary-color);
+    }
+    
+    .book-header {
+        display: flex;
+        justify-content: space-between;
+        padding: 0.5rem 0;
+        border-bottom: 1px solid var(--border-dark);
+        font-weight: bold;
+        color: var(--text-muted);
+    }
+    
+    .book-row {
+        display: flex;
+        justify-content: space-between;
+        padding: 0.5rem 0;
+        border-bottom: 1px solid var(--border-dark-light);
+    }
+    
+    .book-row.editable {
+        cursor: pointer;
+    }
+    
+    .book-row.editable:hover {
+        background-color: rgba(255, 255, 255, 0.05);
     }
     
     .latency-indicator {
-        font-size: 0.9rem;
         margin-top: 1rem;
-        text-align: center;
         padding: 0.5rem;
         background: var(--card-dark);
-        border-radius: 0.25rem;
         border: 1px solid var(--border-dark);
+        font-size: 0.9rem;
     }
     
-    #latency-value {
-        font-weight: bold;
+    /* Status message styling */
+    .status-message {
+        margin-top: 1rem;
+        padding: 1rem;
+        border-radius: 0;
+        border: 1px solid transparent;
     }
     
-    .order-row {
-        cursor: pointer;
+    .status-message.success {
+        background-color: rgba(0, 255, 136, 0.1);
+        color: var(--success-color);
+        border-color: var(--success-color);
+    }
+    
+    .status-message.error {
+        background-color: rgba(255, 59, 59, 0.1);
+        color: var(--danger-color);
+        border-color: var(--danger-color);
+    }
+    
+    .status-message.info {
+        background-color: rgba(0, 180, 255, 0.1);
+        color: var(--primary-color);
+        border-color: var(--primary-color);
+    }
+    
+    .status-message.warning {
+        background-color: rgba(255, 165, 0, 0.1);
+        color: #ff9800;
+        border-color: #ff9800;
+    }
+    
+    /* Order table styling */
+    .order-table-section {
+        margin-top: 1rem;
+        overflow-x: auto;
+    }
+    
+    .orders-table {
+        width: 100%;
+        border-collapse: collapse;
+    }
+    
+    .orders-table th, .orders-table td {
+        padding: 0.75rem;
+        text-align: left;
+        border-bottom: 1px solid var(--border-dark);
+    }
+    
+    .orders-table tr {
         transition: background-color 0.2s;
     }
     
-    .order-row:hover {
+    .orders-table tr:hover {
         background-color: var(--card-dark);
     }
     
-    .order-row.buy-order {
+    .buy-price {
         color: var(--success-color);
     }
     
-    .order-row.sell-order {
+    .sell-price {
         color: var(--danger-color);
     }
     
-    .order-details-modal {
+    /* Modal styling */
+    .modal {
         display: none;
         position: fixed;
         top: 0;
         left: 0;
         right: 0;
         bottom: 0;
-        background-color: rgba(0, 0, 0, 0.5);
-        z-index: 1000;
-        align-items: center;
-        justify-content: center;
+        background-color: rgba(0, 0, 0, 0.7);
+        z-index: 100;
     }
     
-    .order-details-content {
+    .modal-container {
         background-color: var(--card-dark);
-        border-radius: 0.5rem;
-        padding: 1.5rem;
-        width: 100%;
-        max-width: 500px;
         border: 1px solid var(--border-dark);
+        border-radius: 8px;
+        width: 90%;
+        max-width: 500px;
+        position: relative;
+        margin: 10% auto;
     }
     
-    .order-details-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        margin-bottom: 1rem;
-        padding-bottom: 0.5rem;
-        border-bottom: 1px solid var(--border-dark);
+    .modal-content {
+        padding: 1.5rem;
     }
     
-    .order-details-header h3 {
-        margin: 0;
-    }
-    
-    .order-details-close {
-        background: none;
+    .modal-close {
+        position: absolute;
+        top: 0.5rem;
+        right: 0.5rem;
+        font-size: 1.5rem;
+        background: transparent;
         border: none;
         color: var(--text-dark);
-        font-size: 1.5rem;
         cursor: pointer;
     }
     
-    .order-detail-item {
-        margin-bottom: 0.5rem;
-        display: flex;
+    .order-details {
+        margin-bottom: 20px;
+        padding-bottom: 15px;
+        border-bottom: 1px solid var(--border-dark);
     }
     
-    .order-detail-label {
+    .order-detail {
+        margin-bottom: 8px;
+    }
+    
+    .modal-actions {
+        display: flex;
+        gap: 1rem;
+        justify-content: flex-end;
+        margin-top: 1.5rem;
+    }
+    
+    .edit-btn, .save-btn {
+        padding: 0.5rem 1rem;
+        background: var(--primary-color);
+        color: white;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+    }
+    
+    .cancel-btn {
+        padding: 0.5rem 1rem;
+        background: var(--card-dark);
+        color: var(--text-dark);
+        border: 1px solid var(--border-dark);
+        border-radius: 4px;
+        cursor: pointer;
+    }
+    
+    .edit-order-form {
+        margin-top: 1rem;
+    }
+    
+    .form-row {
+        margin-bottom: 1rem;
+    }
+    
+    .form-row label {
+        display: block;
+        margin-bottom: 0.5rem;
+        font-weight: 500;
+    }
+    
+    .form-row input {
+        width: 100%;
+        padding: 0.75rem;
+        background: var(--card-dark);
+        border: 1px solid var(--border-dark);
+        color: var(--text-dark);
+        border-radius: 4px;
+    }
+    
+    /* Badge styling */
+    .badge {
+        display: inline-block;
+        font-size: 0.7rem;
+        padding: 2px 6px;
+        border-radius: 4px;
+        margin-left: 5px;
+        font-weight: bold;
+    }
+    
+    .internal-badge {
+        background-color: rgba(156, 39, 176, 0.2);
+        color: #9c27b0;
+    }
+    
+    /* Account selection styles */
+    .account-panel {
+        margin-bottom: 1.5rem;
+    }
+    
+    .highlight-panel {
+        border-left: 4px solid var(--primary-color);
+        box-shadow: 0 0 8px rgba(0, 180, 255, 0.2);
+    }
+    
+    .account-selection {
+        padding: 1rem;
+        background-color: var(--card-dark);
+        border: 1px solid var(--border-dark);
+        border-radius: 0;
+    }
+    
+    .account-selector {
+        width: 100%;
+        padding: 0.75rem;
+        background-color: var(--card-dark);
+        border: 1px solid var(--border-dark);
+        color: var(--text-dark);
+        border-radius: 0;
+        margin-bottom: 0.5rem;
+    }
+    
+    .account-balance {
+        font-weight: 500;
+        margin-top: 0.5rem;
+        color: var(--primary-color);
+        font-size: 1.1rem;
+    }
+    
+    .cancel-order-btn {
+        padding: 0.25rem 0.5rem;
+        background-color: var(--card-dark);
+        color: var(--danger-color);
+        border: 1px solid var(--danger-color);
+        border-radius: 0;
+        cursor: pointer;
+        font-size: 0.75rem;
+    }
+
+    .order-filled {
+        background-color: rgba(0, 180, 0, 0.1);
+        color: var(--success-color);
+    }
+    
+    .order-cancelled {
+        background-color: rgba(180, 180, 180, 0.1);
+        color: var(--text-muted);
+        text-decoration: line-through;
+    }
+
+    .order-status {
+        font-size: 0.8rem;
+        padding: 0.2rem 0.5rem;
+        border-radius: 3px;
+        font-weight: bold;
+        text-transform: uppercase;
+    }
+
+    /* Styles for the trades panel */
+    .trades-panel {
+        margin-top: 1rem;
+        padding: 1rem;
+        background-color: var(--card-dark);
+        border-radius: 8px;
+    }
+    
+    .trades-container {
+        max-height: 300px;
+        overflow-y: auto;
+    }
+    
+    .trades-table {
+        width: 100%;
+        border-collapse: collapse;
+    }
+    
+    .trades-table th,
+    .trades-table td {
+        padding: 0.5rem;
+        text-align: center;
+        border-bottom: 1px solid var(--border-dark-light);
+    }
+    
+    .trades-table tr.new-trade {
+        animation: highlight-row 2s ease-in-out;
+        background-color: rgba(0, 255, 0, 0.2);
+    }
+    
+    @keyframes highlight-row {
+        0% { background-color: rgba(0, 255, 0, 0.5); }
+        100% { background-color: rgba(0, 255, 0, 0.1); }
+    }
+    
+    /* Toast notifications */
+    #toast-container {
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        z-index: 1000;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+    }
+    
+    .toast {
+        min-width: 300px;
+        max-width: 400px;
+        background-color: var(--card-dark);
+        border-radius: 4px;
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+        overflow: hidden;
+        animation: slide-in 0.3s ease;
+    }
+    
+    .toast-hiding {
+        animation: slide-out 0.3s ease forwards;
+    }
+    
+    .toast-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 0.5rem 1rem;
+        border-bottom: 1px solid var(--border-dark);
+        font-weight: bold;
+    }
+    
+    .toast-body {
+        padding: 0.5rem 1rem;
+    }
+    
+    .toast-close {
+        background: none;
+        border: none;
+        font-size: 1.2rem;
+        cursor: pointer;
+        color: var(--text-dark);
+    }
+    
+    .toast-info {
+        border-left: 4px solid var(--info-color);
+    }
+    
+    .toast-success {
+        border-left: 4px solid var(--success-color);
+    }
+    
+    .toast-warning {
+        border-left: 4px solid var(--warning-color);
+    }
+    
+    .toast-error {
+        border-left: 4px solid var(--danger-color);
+    }
+    
+    @keyframes slide-in {
+        from { transform: translateX(100%); opacity: 0; }
+        to { transform: translateX(0); opacity: 1; }
+    }
+    
+    @keyframes slide-out {
+        from { transform: translateX(0); opacity: 1; }
+        to { transform: translateX(100%); opacity: 0; }
+    }
+
+    /* Clickable rows styling */
+    tr.clickable {
+        cursor: pointer;
+        transition: background-color 0.2s;
+    }
+    
+    tr.clickable:hover {
+        background-color: var(--hover-color, rgba(70, 90, 120, 0.1));
+    }
+    
+    /* Trade details modal */
+    .trade-details {
+        margin-bottom: 20px;
+    }
+    
+    .trade-details .detail-row {
+        display: flex;
+        margin-bottom: 10px;
+        border-bottom: 1px solid var(--border-color-light, #eee);
+        padding-bottom: 8px;
+    }
+    
+    .trade-details .detail-label {
+        font-weight: bold;
+        width: 120px;
+        color: var(--text-muted, #666);
+    }
+    
+    .trade-details .detail-value {
+        flex-grow: 1;
+    }
+    
+    /* Message styling */
+    .message {
+        padding: 10px;
+        margin: 10px 0;
+        border-radius: 4px;
+        font-size: 0.9rem;
+        text-align: center;
+    }
+    
+    .message.success {
+        background-color: rgba(40, 167, 69, 0.1);
+        color: #28a745;
+        border: 1px solid rgba(40, 167, 69, 0.2);
+    }
+    
+    .message.error {
+        background-color: rgba(220, 53, 69, 0.1);
+        color: #dc3545;
+        border: 1px solid rgba(220, 53, 69, 0.2);
+    }
+    
+    .message.info {
+        background-color: rgba(23, 162, 184, 0.1);
+        color: #17a2b8;
+        border: 1px solid rgba(23, 162, 184, 0.2);
+    }
+    
+    /* Order actions styling */
+    .order-actions {
+        display: flex;
+        gap: 5px;
+    }
+    
+    .edit-btn, .cancel-btn {
+        padding: 3px 8px;
+        font-size: 0.8rem;
+        border-radius: 4px;
+        cursor: pointer;
+        border: none;
+        font-weight: 500;
+        transition: background-color 0.2s;
+    }
+    
+    .edit-btn {
+        background-color: #4a88d6;
+        color: white;
+    }
+    
+    .edit-btn:hover {
+        background-color: #3a78c6;
+    }
+    
+    .cancel-btn {
+        background-color: #dc3545;
+        color: white;
+    }
+    
+    .cancel-btn:hover {
+        background-color: #c82333;
+    }
+
+    /* Standardize panel heights and appearance */
+    .panel {
+        min-height: 400px;
+        /* height: 100%; /* Removed: Let grid handle vertical alignment */
+        display: flex;
+        flex-direction: column;
+        background-color: var(--bg-card, #111);
+        border-radius: 10px;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        overflow: hidden;
+    }
+    
+    .panel h2 {
+        margin: 0;
+        padding: 15px;
+        background-color: var(--bg-secondary, #222);
+        border-bottom: 1px solid var(--border-color, #333);
+        font-size: 1.2rem;
+    }
+    
+    /* Make table containers take up remaining space */
+    .orders-list, .trades-container, .order-book {
+        flex: 1;
+        overflow: auto;
+        padding: 0;
+    }
+    
+    /* Style all tables consistently */
+    .my-orders-table, .trades-table, .book-table {
+        width: 100%;
+        border-collapse: collapse;
+    }
+    
+    .my-orders-table th, .trades-table th, .book-table th {
+        position: sticky;
+        top: 0;
+        background-color: var(--bg-secondary, #222);
+        color: var(--text-color, #eee);
         font-weight: 600;
-        width: 100px;
+        padding: 10px;
+        text-align: left;
+        border-bottom: 1px solid var(--border-color, #333);
+    }
+    
+    .my-orders-table td, .trades-table td, .book-table td {
+        padding: 10px;
+        border-bottom: 1px solid var(--border-color-light, #2a2a2a);
+    }
+    
+    /* Ensure tables fill their containers */
+    .orders-list table, .trades-container table, .order-book table {
+        height: 100%;
+    }
+
+    .order-cancelled {
+        background-color: rgba(180, 180, 180, 0.1);
+        color: var(--text-muted);
+        text-decoration: line-through;
+    }
+
+    .order-partially-filled {
+        background-color: rgba(255, 215, 0, 0.1);
+        color: var(--warning-color);
+    }
+
+    .filled-info {
+        font-size: 0.7rem;
+        color: var(--text-muted);
+        margin-top: 3px;
+    }
+
+    .order-status {
+        font-size: 0.8rem;
+        padding: 0.2rem 0.5rem;
+        border-radius: 3px;
+        font-weight: bold;
+        text-transform: uppercase;
+    }
+
+    /* Updated styling for My Orders section */
+    .my-orders-table {
+        margin-top: 0;
+        margin-bottom: 0;
+    }
+    
+    .my-orders-table td {
+        padding: 4px 8px;
+        vertical-align: middle;
+        font-size: 0.85rem;
+    }
+    
+    .my-orders-table tbody tr {
+        height: auto;
+        line-height: 1.2;
+        padding: 0;
+        margin: 0;
+    }
+    
+    .my-orders-table th {
+        padding: 6px 8px;
+        font-size: 0.85rem;
+        height: 32px;
+    }
+    
+    .orders-list {
+        padding: 0;
+        margin: 0;
+        max-height: 400px;
+    }
+    
+    /* Panel height adjustment */
+    .panel {
+        min-height: 350px;
+    }
+    
+    /* Panel with my orders specific styling */
+    .orders-panel {
+        display: flex;
+        flex-direction: column;
+    }
+    
+    .orders-panel h2 {
+        padding: 8px 15px;
+        font-size: 1.1rem;
+        height: 36px;
+    }
+    
+    /* Make action buttons more compact */
+    .order-actions {
+        display: flex;
+        justify-content: center;
+    }
+    
+    .order-actions .cancel-btn {
+        padding: 2px 6px;
+        font-size: 0.7rem;
+        min-height: 0;
+        line-height: 1;
+    }
+    
+    /* Reduce space taken by status */
+    .order-status {
+        padding: 2px 4px;
+        font-size: 0.7rem;
+        display: inline-block;
+    }
+    
+    .filled-info {
+        font-size: 0.65rem;
+        margin-top: 2px;
+        display: block;
+    }
+
+    /* Order status colors */
+    .order-status.open { 
+        color: var(--primary-color);
+        background-color: rgba(var(--primary-rgb), 0.1);
+        padding: 3px 8px;
+        border-radius: 4px;
+    }
+    .order-status.partially_filled { 
+        color: var(--warning-color);
+        background-color: rgba(var(--warning-rgb), 0.1);
+        padding: 3px 8px;
+        border-radius: 4px;
+    }
+    .order-status.filled { 
+        color: var(--success-color);
+        background-color: rgba(var(--success-rgb), 0.1);
+        padding: 3px 8px;
+        border-radius: 4px;
+    }
+    .order-status.cancelled { 
+        color: var(--danger-color);
+        background-color: rgba(var(--danger-rgb), 0.1);
+        padding: 3px 8px;
+        border-radius: 4px;
+    }
+    
+    /* Updated order row */
+    tr.updated {
+        animation: highlight-row 2s ease-in-out;
+    }
+    
+    /* Order row cancelling state */
+    tr.cancelling {
+        opacity: 0.7;
+        position: relative;
+    }
+    
+    tr.cancelling::after {
+        content: "";
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background-color: rgba(0, 0, 0, 0.05);
+        backdrop-filter: blur(1px);
+        z-index: 1;
+    }
+    
+    /* Toast notifications */
+    #toast-container {
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        z-index: 10000;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+    }
+    
+    .toast {
+        background-color: var(--card-dark);
+        color: var(--text-dark);
+        border-radius: 4px;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+        width: 300px;
+        max-width: 100%;
+        position: relative;
+        overflow: hidden;
+    }
+    
+    .toast-info {
+        border-left: 4px solid var(--primary-color);
+    }
+    
+    .toast-success {
+        border-left: 4px solid var(--success-color);
+    }
+    
+    .toast-warning {
+        border-left: 4px solid var(--warning-color);
+    }
+    
+    .toast-error {
+        border-left: 4px solid var(--danger-color);
+    }
+    
+    /* Animation for highlighting updated row */
+    @keyframes highlight-row {
+        0%, 100% {
+            background-color: transparent;
+        }
+        20% {
+            background-color: rgba(var(--success-rgb), 0.2);
+        }
+    }
+    
+    /* Custom confirm dialog */
+    .custom-confirm-dialog {
+        animation: fadeIn 0.2s ease-out;
+    }
+    
+    .confirm-box {
+        animation: scaleIn 0.2s ease-out;
+    }
+    
+    @keyframes fadeIn {
+        from { opacity: 0; }
+        to { opacity: 1; }
+    }
+    
+    @keyframes scaleIn {
+        from { transform: scale(0.9); opacity: 0; }
+        to { transform: scale(1); opacity: 1; }
     }
 </style>
+{% endblock %}
 
-<div id="order-details-modal" class="order-details-modal">
-    <div class="order-details-content">
-        <div class="order-details-header">
-            <h3>Order Details</h3>
-            <button class="order-details-close">&times;</button>
-        </div>
-        <div id="order-details-body">
-            <div class="order-detail-item">
-                <div class="order-detail-label">ID:</div>
-                <div id="detail-order-id"></div>
-            </div>
-            <div class="order-detail-item">
-                <div class="order-detail-label">Symbol:</div>
-                <div id="detail-symbol"></div>
-            </div>
-            <div class="order-detail-item">
-                <div class="order-detail-label">Type:</div>
-                <div id="detail-type"></div>
-            </div>
-            <div class="order-detail-item">
-                <div class="order-detail-label">Order Type:</div>
-                <div id="detail-order-type"></div>
-            </div>
-            <div class="order-detail-item">
-                <div class="order-detail-label">Price:</div>
-                <div id="detail-price"></div>
-            </div>
-            <div class="order-detail-item">
-                <div class="order-detail-label">Quantity:</div>
-                <div id="detail-quantity"></div>
-            </div>
-            <div class="order-detail-item">
-                <div class="order-detail-label">Time:</div>
-                <div id="detail-time"></div>
-            </div>
-            <div class="order-detail-item">
-                <div class="order-detail-label">Status:</div>
-                <div id="detail-status"></div>
-            </div>
-        </div>
-    </div>
-</div>
+{% block scripts %}
+<script type="module">
+    import { Autocomplete, SYMBOL_LISTS } from '/static/js/modules/autocomplete.js';
+    import { OrderBook } from '/static/js/modules/orderbook.js';
 
-<script>
-    document.addEventListener('DOMContentLoaded', function() {
-        // Order details modal functionality
-        const modal = document.getElementById('order-details-modal');
-        const closeBtn = document.querySelector('.order-details-close');
+    // Main initialization function
+    function initializeTradingPage() {
+        console.log("Initializing trading page...");
         
-        closeBtn.addEventListener('click', function() {
-            modal.style.display = 'none';
+        // Load all accounts
+        loadTradingAccounts();
+        
+        // Initialize all data loading
+        loadAllOrders();
+        
+        // Set up other UI elements and event listeners
+        setupUIElements();
+        
+        // Set up auto-refresh of data
+        setInterval(() => {
+            // Refresh account orders if an account is selected
+            const accountSelector = document.getElementById('account-selector');
+            if (accountSelector && accountSelector.value) {
+                loadAccountOrders(accountSelector.value);
+            }
+        }, 5000); // Refresh every 5 seconds
+    }
+    
+    // Set up other UI elements and event listeners
+    function setupUIElements() {
+        // Initialize symbol selection
+        const symbolInput = document.getElementById('symbol');
+        const selectedTickerElement = document.getElementById('selected-ticker');
+        const tradingSymbolInput = document.getElementById('trading-symbol');
+        
+        // Simple function to set the selected symbol
+        function setSelectedSymbol(symbol) {
+            if (symbol) {
+                console.log('Setting selected symbol to:', symbol);
+                
+                // Update the hidden input
+                if (tradingSymbolInput) {
+                    tradingSymbolInput.value = symbol;
+                }
+                
+                // Update the display
+                if (selectedTickerElement) {
+                    selectedTickerElement.textContent = symbol;
+                    selectedTickerElement.style.color = '#00b4ff'; // Highlight the selected symbol
+                }
+                
+                // Load orders for this symbol
+                loadAllOrders();
+            }
+        }
+        
+        // Add direct event listener for the symbol input
+        if (symbolInput) {
+            // Handle enter key
+            symbolInput.addEventListener('keypress', function(e) {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    const symbol = this.value.trim().toUpperCase();
+                    if (symbol) {
+                        setSelectedSymbol(symbol);
+                    }
+                }
+            });
+            
+            // Find and set up the select symbol button
+            const selectSymbolBtn = document.getElementById('select-symbol-btn');
+            if (selectSymbolBtn) {
+                selectSymbolBtn.addEventListener('click', function() {
+                    const symbol = symbolInput.value.trim().toUpperCase();
+                    if (symbol) {
+                        setSelectedSymbol(symbol);
+                    }
+                });
+            }
+        }
+        
+        // Set up order type selection (market/limit)
+        const marketBtn = document.getElementById('market-order-btn');
+        const limitBtn = document.getElementById('limit-order-btn');
+        const priceField = document.getElementById('price-field');
+        const orderTypeInput = document.getElementById('order-type-input');
+        const priceInput = document.getElementById('price');
+        
+        if (marketBtn && limitBtn && priceField && orderTypeInput && priceInput) {
+            // Set up market button
+            marketBtn.addEventListener('click', () => {
+                marketBtn.classList.add('active');
+                limitBtn.classList.remove('active');
+                priceField.style.display = 'none';
+                orderTypeInput.value = 'market';
+                
+                // Set price to 0 for market orders (backend will use current market price)
+                priceInput.value = '0';
+            });
+            
+            // Set up limit button
+            limitBtn.addEventListener('click', () => {
+                limitBtn.classList.add('active');
+                marketBtn.classList.remove('active');
+                priceField.style.display = 'block';
+                orderTypeInput.value = 'limit';
+            });
+            
+            // Default to limit order
+            limitBtn.click();
+        }
+        
+        // Set up buy/sell buttons
+        const buyBtn = document.getElementById('buy-btn');
+        const sellBtn = document.getElementById('sell-btn');
+        const typeInput = document.getElementById('type');
+        
+        if (buyBtn && sellBtn && typeInput) {
+            // Buy button click handler
+            buyBtn.addEventListener('click', () => {
+                typeInput.value = 'buy';
+                handleOrderSubmit();
+            });
+            
+            // Sell button click handler
+            sellBtn.addEventListener('click', () => {
+                typeInput.value = 'sell';
+                handleOrderSubmit();
+            });
+        }
+    }
+
+    // Run initialization when DOM is loaded
+    document.addEventListener('DOMContentLoaded', function() {
+        // Initialize the trading page
+        initializeTradingPage();
+        
+        // Setup WebSocket for real-time updates
+        setupWebSocket();
+        
+        // Start the fake order book data generator
+        startFakeOrderBookUpdates();
+    });
+    
+    // Set up WebSocket connection for real-time updates
+    function setupWebSocket() {
+        const ws = new WebSocket(`ws://${window.location.host}/ws`);
+        
+        ws.onopen = function() {
+            console.log('WebSocket connection established');
+            // Subscribe to general notifications
+            ws.send(JSON.stringify({ type: 'subscribe', channel: 'oes:notifications' }));
+        };
+        
+        // Track seen trade IDs to prevent duplicate notifications
+        const seenTradeIds = new Set();
+        
+        ws.onmessage = function(event) {
+            try {
+                const data = JSON.parse(event.data);
+                console.log('WebSocket received message:', data);
+                
+                if (data.type === 'trade_executed') {
+                    console.log('Received trade execution notification:', data);
+                    
+                    // Check if we've already seen this trade
+                    if (data.trade_id && !seenTradeIds.has(data.trade_id)) {
+                        seenTradeIds.add(data.trade_id);
+                        console.log('New trade detected, showing notification');
+                        
+                        // Show notification for the trade with enhanced details
+                        const symbol = data.symbol || '';
+                        const price = data.price ? `$${parseFloat(data.price).toFixed(2)}` : '';
+                        const quantity = data.quantity || '';
+                        const side = data.buy_order_id ? 'Buy' : 'Sell';
+                        const tradeValue = price && quantity ? `$${(parseFloat(price.replace('$', '')) * parseFloat(quantity)).toFixed(2)}` : '';
+                        
+                        // Create custom HTML content for the notification
+                        const customTitle = `<div style="display: flex; align-items: center;">
+                            <span style="color: var(--success-color); margin-right: 8px;">✓</span>
+                            <span>Order Matched!</span>
+                        </div>`;
+                        
+                        const customMessage = `<div style="margin-top: 5px;">
+                            <div style="font-weight: bold; font-size: 16px;">${symbol}</div>
+                            <div style="display: flex; justify-content: space-between; margin-top: 4px;">
+                                <span>${side} ${quantity} shares</span>
+                                <span>${price}</span>
+                            </div>
+                            <div style="color: var(--text-muted); text-align: right; margin-top: 2px; font-size: 12px;">
+                                Total: ${tradeValue}
+                            </div>
+                        </div>`;
+                        
+                        // Create and show a custom toast
+                        const toast = showToast(
+                            'Order Matched!', 
+                            `${symbol}: ${quantity} shares at ${price}`, 
+                            'success', 
+                            8000
+                        );
+                        
+                        // Update the toast content with our custom HTML
+                        const toastTitle = toast.querySelector('.toast-title');
+                        const toastMessage = toast.querySelector('.toast-message');
+                        
+                        if (toastTitle && toastMessage) {
+                            toastTitle.innerHTML = customTitle;
+                            toastMessage.innerHTML = customMessage;
+                        }
+                        
+                        // Play notification sound
+                        const audio = document.getElementById('order-match-sound');
+                        if (audio) {
+                            audio.currentTime = 0; // Reset to beginning
+                            audio.play().catch(e => console.warn('Could not play notification sound:', e));
+                        }
+                        
+                        // Reload active orders
+                        const accountId = document.getElementById('account-id').value;
+                        if (accountId) {
+                            loadAccountOrders(accountId);
+                        }
+                        
+                        // Also refresh the orderbook
+                        loadAllOrders();
+                        
+                        // Limit size of seenTradeIds to prevent memory issues
+                        if (seenTradeIds.size > 200) {
+                            seenTradeIds.clear();
+                        }
+                    }
+                }
+                else if (data.type === 'order_updated') {
+                    console.log('Received order update notification:', data);
+                    
+                    // Get the current account ID
+                    const accountId = document.getElementById('account-id').value;
+                    
+                    // If this update is for the current account, fetch the updated order details
+                    if (accountId && data.account_id === accountId) {
+                        // Fetch the updated order
+                        fetch(`/api/orders/${data.order_id}`)
+                            .then(response => response.json())
+                            .then(updatedOrder => {
+                                // Update the row in the orders table
+                                updateOrderRowInTable(data.order_id, updatedOrder);
+                            })
+                            .catch(error => console.error('Error fetching updated order details:', error));
+                    }
+                    
+                    // Always refresh all orders to update the order book
+                    loadAllOrders();
+                }
+                else if (data.type === 'toast') {
+                    // Show a toast notification
+                    showToast(data.title, data.message, data.variant, data.duration);
+                }
+            } catch (error) {
+                console.error('Error parsing WebSocket message:', error);
+            }
+        };
+        
+        ws.onclose = function() {
+            console.log('WebSocket connection closed, attempting to reconnect in 5 seconds...');
+            setTimeout(setupWebSocket, 5000);
+        };
+        
+        ws.onerror = function(error) {
+            console.error('WebSocket error:', error);
+        };
+    }
+    
+    // Function to show a trade notification
+    function showTradeNotification(data) {
+        const tradesTable = document.getElementById('trades-table-body');
+        
+        // First check if there's a "No trades" message and clear it
+        if (tradesTable && tradesTable.innerHTML.includes('No recent trades')) {
+            tradesTable.innerHTML = '';
+        }
+        
+        // Check if this trade is already in the table
+        if (tradesTable && data.trade_id) {
+            // Look for existing row with this trade ID
+            const existingRow = document.querySelector(`#trades-table-body tr[data-trade-id="${data.trade_id}"]`);
+            if (existingRow) {
+                return; // Already displayed this trade, don't duplicate
+            }
+        }
+        
+        // Create a new row for the trade at the top
+        if (tradesTable) {
+            const row = document.createElement('tr');
+            row.classList.add('new-trade');
+            
+            // Add trade ID as a data attribute for future checks
+            if (data.trade_id) {
+                row.setAttribute('data-trade-id', data.trade_id);
+            }
+            
+            // Calculate total
+            const price = parseFloat(data.price);
+            const quantity = parseFloat(data.quantity);
+            const total = price * quantity;
+            
+            // Create short account IDs
+            const buyAccount = data.buy_account_id ? data.buy_account_id.substring(0, 8) + '...' : 'Unknown';
+            const sellAccount = data.sell_account_id ? data.sell_account_id.substring(0, 8) + '...' : 'Unknown';
+            
+            row.innerHTML = `
+                <td>${data.trade_id || 'New Trade'}</td>
+                <td>${data.symbol}</td>
+                <td>$${price.toFixed(2)}</td>
+                <td>${parseInt(quantity)}</td>
+                <td>$${total.toFixed(2)}</td>
+            `;
+            
+            // Add the row to the top of the table
+            if (tradesTable.firstChild) {
+                tradesTable.insertBefore(row, tradesTable.firstChild);
+            } else {
+                tradesTable.appendChild(row);
+            }
+        }
+    }
+    
+    // Function to show a toast notification
+    function showToast(title, message, variant = 'info', duration = 5000) {
+        // Create toast container if it doesn't exist
+        let toastContainer = document.getElementById('toast-container');
+        if (!toastContainer) {
+            toastContainer = document.createElement('div');
+            toastContainer.id = 'toast-container';
+            toastContainer.style.position = 'fixed';
+            toastContainer.style.top = '20px';
+            toastContainer.style.right = '20px';
+            toastContainer.style.zIndex = '9999';
+            toastContainer.style.display = 'flex';
+            toastContainer.style.flexDirection = 'column';
+            toastContainer.style.gap = '10px';
+            document.body.appendChild(toastContainer);
+        }
+        
+        // Limit the number of active toasts (prevent too many from stacking up)
+        const maxToasts = 3;
+        if (toastContainer.children.length >= maxToasts) {
+            // Remove the oldest toast if we exceed the limit
+            const oldestToast = toastContainer.children[0];
+            if (oldestToast._timeoutId) {
+                clearTimeout(oldestToast._timeoutId);
+            }
+            oldestToast.remove();
+        }
+        
+        // Create toast element
+        const toast = document.createElement('div');
+        toast.className = `toast toast-${variant}`;
+        toast.style.backgroundColor = 'var(--card-dark)';
+        toast.style.color = 'var(--text-dark)';
+        toast.style.border = `1px solid var(--${variant}-color, var(--primary-color))`;
+        toast.style.borderLeft = `4px solid var(--${variant}-color, var(--primary-color))`;
+        toast.style.borderRadius = '0px';
+        toast.style.padding = '12px 16px';
+        toast.style.minWidth = '300px';
+        toast.style.maxWidth = '400px';
+        toast.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.15)';
+        toast.style.display = 'flex';
+        toast.style.flexDirection = 'column';
+        toast.style.opacity = '0';
+        toast.style.transform = 'translateX(20px)';
+        toast.style.transition = 'opacity 0.3s, transform 0.3s';
+        toast.style.position = 'relative';
+        
+        // Toast title
+        const toastTitle = document.createElement('div');
+        toastTitle.className = 'toast-title';
+        toastTitle.textContent = title;
+        toastTitle.style.fontWeight = 'bold';
+        toastTitle.style.marginBottom = '4px';
+        toastTitle.style.color = `var(--${variant}-color, var(--primary-color))`;
+        
+        // Toast message
+        const toastMessage = document.createElement('div');
+        toastMessage.className = 'toast-message';
+        toastMessage.textContent = message;
+        
+        // Close button
+        const closeBtn = document.createElement('button');
+        closeBtn.className = 'toast-close';
+        closeBtn.innerHTML = '&times;';
+        closeBtn.style.position = 'absolute';
+        closeBtn.style.top = '8px';
+        closeBtn.style.right = '8px';
+        closeBtn.style.background = 'transparent';
+        closeBtn.style.border = 'none';
+        closeBtn.style.color = 'var(--text-muted)';
+        closeBtn.style.fontSize = '16px';
+        closeBtn.style.cursor = 'pointer';
+        closeBtn.style.padding = '0';
+        closeBtn.style.width = '20px';
+        closeBtn.style.height = '20px';
+        closeBtn.style.display = 'flex';
+        closeBtn.style.alignItems = 'center';
+        closeBtn.style.justifyContent = 'center';
+        
+        // Append elements
+        toast.appendChild(toastTitle);
+        toast.appendChild(toastMessage);
+        toast.appendChild(closeBtn);
+        toastContainer.appendChild(toast);
+        
+        // Animate in
+        requestAnimationFrame(() => {
+            toast.style.opacity = '1';
+            toast.style.transform = 'translateX(0)';
         });
         
-        // Close modal when clicking outside
-        window.addEventListener('click', function(event) {
-            if (event.target === modal) {
+        // Set up close button
+        function removeToast(toast) {
+            // Clear the timeout
+            if (toast._timeoutId) {
+                clearTimeout(toast._timeoutId);
+                toast._timeoutId = null;
+            }
+            
+            // Animate out
+            toast.style.opacity = '0';
+            toast.style.transform = 'translateX(20px)';
+            
+            // Remove after animation completes
+            setTimeout(() => {
+                if (toast && toast.parentNode) {
+                    toast.remove();
+                    
+                    // Remove container if empty
+                    if (toastContainer && toastContainer.children.length === 0) {
+                        toastContainer.remove();
+                    }
+                }
+            }, 300);
+        }
+        
+        closeBtn.addEventListener('click', () => {
+            removeToast(toast);
+        });
+        
+        // Auto remove after duration
+        const timeoutId = setTimeout(() => {
+            removeToast(toast);
+        }, duration);
+        
+        // Store timeout ID to clear it if manually closed
+        toast._timeoutId = timeoutId;
+        
+        return toast;
+    }
+
+    // Function to load trading accounts
+    async function loadTradingAccounts() {
+        try {
+            const response = await fetch('/api/accounts/');
+            if (!response.ok) {
+                throw new Error('Failed to fetch accounts');
+            }
+            
+            const accounts = await response.json();
+            populateAccountSelector(accounts);
+        } catch (error) {
+            console.error('Error loading accounts:', error);
+            alert('Failed to load trading accounts. Please try again.');
+        }
+    }
+
+    // Function to populate the account selector
+    function populateAccountSelector(accounts) {
+        const selector = document.getElementById('account-selector');
+        if (!selector) return;
+        
+        // Clear existing options except the first placeholder
+        while (selector.options.length > 1) {
+            selector.remove(1);
+        }
+        
+        // Add accounts to the selector
+        accounts.forEach(account => {
+            const option = document.createElement('option');
+            option.value = account.account_id;
+            option.textContent = `${account.name} - $${parseFloat(account.balance).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+            option.dataset.balance = account.balance;
+            option.dataset.name = account.name;
+            selector.appendChild(option);
+        });
+        
+        // Add change event listener to the account selector
+        selector.addEventListener('change', function() {
+            const selectedAccount = this.value;
+            console.log("Account changed to:", selectedAccount);
+            
+            // Update account info in UI
+            updateSelectedAccount();
+            
+            // Load orders for this account
+            if (selectedAccount) {
+                loadAccountOrders(selectedAccount);
+            }
+        });
+    }
+
+    // Function to update the selected account
+    function updateSelectedAccount() {
+        const selector = document.getElementById('account-selector');
+        const accountIdInput = document.getElementById('account-id');
+        const balanceDisplay = document.getElementById('account-balance-display');
+        
+        if (!selector || !accountIdInput || !balanceDisplay) return;
+        
+        const selectedOption = selector.options[selector.selectedIndex];
+        
+        if (selectedOption && selectedOption.value) {
+            // Update the hidden input with the account ID
+            accountIdInput.value = selectedOption.value;
+            
+            // Update the balance display
+            const balance = selectedOption.dataset.balance || 0;
+            balanceDisplay.textContent = `$${parseFloat(balance).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+            
+            console.log('Account selected:', {
+                id: selectedOption.value,
+                name: selectedOption.dataset.name,
+                balance: balance
+            });
+        } else {
+            // Reset if no account is selected
+            accountIdInput.value = '';
+            balanceDisplay.textContent = '$0.00';
+        }
+    }
+
+    // Function to load orders for the selected account
+    async function loadAccountOrders(accountId) {
+        console.log(`Starting loadAccountOrders for account ID: ${accountId}`);
+        if (!accountId) {
+            const selector = document.getElementById('account-selector');
+            if (selector) {
+                accountId = selector.value;
+                console.log(`Using selected account ID from selector: ${accountId}`);
+            }
+        }
+        
+        if (!accountId) {
+            console.warn('No account selected');
+            document.querySelector('.my-orders-table tbody').innerHTML = '<tr><td colspan="8" class="text-center">No account selected</td></tr>';
+            return;
+        }
+        
+        try {
+            // Display loading state
+            document.querySelector('.my-orders-table tbody').innerHTML = '<tr><td colspan="8" class="text-center">Loading orders...</td></tr>';
+            
+            // Add cache-busting parameter to ensure we get fresh data
+            const cacheBuster = new Date().getTime();
+            const url = `/api/accounts/${accountId}/orders?_=${cacheBuster}`;
+            
+            console.log(`Fetching orders from: ${url}`);
+            const response = await fetch(url, {
+                headers: {
+                    'Cache-Control': 'no-cache, no-store, must-revalidate',
+                    'Pragma': 'no-cache',
+                    'Expires': '0'
+                }
+            });
+            
+            if (!response.ok) {
+                throw new Error(`Failed to fetch orders: ${response.status} ${response.statusText}`);
+            }
+            
+            const orders = await response.json();
+            console.log(`Loaded ${orders.length} orders for account ${accountId}. Orders:`, orders);
+            
+            populateOrdersTable(orders);
+        } catch (error) {
+            console.error('Error loading account orders:', error);
+            document.querySelector('.my-orders-table tbody').innerHTML = `<tr><td colspan="8" class="text-center">Error loading orders: ${error.message}</td></tr>`;
+        }
+    }
+
+    // Function to populate the orders table
+    function populateOrdersTable(orders) {
+        const tableBody = document.querySelector('.my-orders-table tbody');
+        if (!tableBody) return;
+        
+        // Clear existing orders
+        tableBody.innerHTML = '';
+        
+        // Sort orders by timestamp (newest first)
+        orders.sort((a, b) => parseFloat(b.timestamp) - parseFloat(a.timestamp));
+        
+        // Check if any orders exist
+        if (orders.length === 0) {
+            tableBody.innerHTML = '<tr><td colspan="8" class="text-center">No orders found for this account</td></tr>';
+            return;
+        }
+        
+        // Log orders that we're populating
+        console.log(`Populating table with ${orders.length} orders`);
+        
+        orders.forEach(order => {
+            // Create a new row
+            const row = document.createElement('tr');
+            
+            // Set data attributes for order details
+            row.dataset.orderId = order.id;
+            row.dataset.symbol = order.symbol;
+            row.dataset.price = order.price;
+            row.dataset.quantity = order.quantity;
+            row.dataset.status = order.status;
+            
+            // Add clickable class for editable orders
+            if (order.status === 'open' || order.status === 'partially_filled') {
+                row.classList.add('clickable');
+            }
+            
+            // Format order type
+            const orderType = `<span class="order-type ${order.type.toLowerCase()}">${order.type.charAt(0).toUpperCase() + order.type.slice(1)}</span>`;
+            
+            // Format price as currency
+            const price = parseFloat(order.price);
+            const formattedPrice = isNaN(price) ? '-' : `$${price.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+            
+            // Format quantity with commas for thousands
+            const quantity = parseFloat(order.quantity);
+            const displayQuantity = isNaN(quantity) ? 0 : quantity;
+            
+            // Calculate total value (price * quantity)
+            const total = price * displayQuantity;
+            const formattedTotal = isNaN(total) ? '-' : `$${total.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+            
+            // Calculate filled quantity (for partially filled orders)
+            const filledQuantity = order.filled_quantity ? parseFloat(order.filled_quantity) : 0;
+            
+            // Format timestamp
+            const orderTime = new Date(order.timestamp * 1000).toLocaleString('en-US', {
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit'
+            });
+            
+            // Format the status with appropriate styling
+            let statusDisplay = `<span class="order-status ${order.status || 'open'}">${order.status || 'open'}</span>`;
+            
+            // Add filled quantity information for partially filled orders
+            if (order.status === 'partially_filled' && filledQuantity > 0) {
+                statusDisplay += `<div class="filled-info">(${filledQuantity} filled)</div>`;
+            }
+            
+            // Determine if the order is editable (only open/partially_filled orders)
+            const isEditable = order.status === 'open' || order.status === 'partially_filled';
+            
+            // Create actions cell with buttons for editable orders
+            let actionsCell = '';
+            if (isEditable) {
+                actionsCell = `
+                    <div class="order-actions">
+                        <button class="cancel-btn" data-order-id="${order.id}">Cancel</button>
+                    </div>
+                `;
+            }
+            
+            row.innerHTML = `
+                <td>${orderType}</td>
+                <td>${order.symbol || '-'}</td>
+                <td>${formattedPrice}</td>
+                <td>${displayQuantity.toLocaleString()}</td>
+                <td>${formattedTotal}</td>
+                <td>${orderTime}</td>
+                <td>${statusDisplay}</td>
+                <td>${actionsCell}</td>
+            `;
+            
+            tableBody.appendChild(row);
+        });
+        
+        // Add event listeners for cancel buttons
+        document.querySelectorAll('.cancel-btn').forEach(button => {
+            button.addEventListener('click', function(e) {
+                e.stopPropagation(); // Prevent event bubbling
+                const orderId = this.getAttribute('data-order-id');
+                
+                // Create a custom confirmation dialog
+                const confirmContainer = document.createElement('div');
+                confirmContainer.className = 'custom-confirm-dialog';
+                confirmContainer.style.position = 'fixed';
+                confirmContainer.style.top = '0';
+                confirmContainer.style.left = '0';
+                confirmContainer.style.width = '100%';
+                confirmContainer.style.height = '100%';
+                confirmContainer.style.backgroundColor = 'rgba(0, 0, 0, 0.5)';
+                confirmContainer.style.zIndex = '10000';
+                confirmContainer.style.display = 'flex';
+                confirmContainer.style.justifyContent = 'center';
+                confirmContainer.style.alignItems = 'center';
+                
+                const confirmBox = document.createElement('div');
+                confirmBox.className = 'confirm-box';
+                confirmBox.style.backgroundColor = 'var(--card-dark)';
+                confirmBox.style.padding = '20px';
+                confirmBox.style.borderRadius = '4px';
+                confirmBox.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.3)';
+                confirmBox.style.minWidth = '300px';
+                confirmBox.style.textAlign = 'center';
+                
+                const confirmTitle = document.createElement('h3');
+                confirmTitle.style.marginTop = '0';
+                confirmTitle.style.marginBottom = '15px';
+                confirmTitle.textContent = 'Cancel Order';
+                
+                const confirmText = document.createElement('p');
+                confirmText.textContent = 'Are you sure you want to cancel this order?';
+                confirmText.style.marginBottom = '20px';
+                
+                const buttonContainer = document.createElement('div');
+                buttonContainer.style.display = 'flex';
+                buttonContainer.style.justifyContent = 'center';
+                buttonContainer.style.gap = '10px';
+                
+                const cancelButton = document.createElement('button');
+                cancelButton.textContent = 'No, Keep Order';
+                cancelButton.style.padding = '8px 16px';
+                cancelButton.style.borderRadius = '4px';
+                cancelButton.style.border = '1px solid var(--border-color)';
+                cancelButton.style.backgroundColor = 'var(--card-dark)';
+                cancelButton.style.color = 'var(--text-dark)';
+                cancelButton.style.cursor = 'pointer';
+                
+                const confirmButton = document.createElement('button');
+                confirmButton.textContent = 'Yes, Cancel Order';
+                confirmButton.style.padding = '8px 16px';
+                confirmButton.style.borderRadius = '4px';
+                confirmButton.style.border = '1px solid var(--danger-color)';
+                confirmButton.style.backgroundColor = 'var(--danger-color)';
+                confirmButton.style.color = 'white';
+                confirmButton.style.cursor = 'pointer';
+                
+                buttonContainer.appendChild(cancelButton);
+                buttonContainer.appendChild(confirmButton);
+                
+                confirmBox.appendChild(confirmTitle);
+                confirmBox.appendChild(confirmText);
+                confirmBox.appendChild(buttonContainer);
+                
+                confirmContainer.appendChild(confirmBox);
+                document.body.appendChild(confirmContainer);
+                
+                // Add event listeners for the buttons
+                cancelButton.addEventListener('click', function() {
+                    document.body.removeChild(confirmContainer);
+                });
+                
+                confirmButton.addEventListener('click', function() {
+                    document.body.removeChild(confirmContainer);
+                    cancelOrder(orderId);
+                });
+                
+                // Also close on clicking outside
+                confirmContainer.addEventListener('click', function(e) {
+                    if (e.target === confirmContainer) {
+                        document.body.removeChild(confirmContainer);
+                    }
+                });
+            });
+        });
+
+        // Add click event to rows to open the edit modal
+        document.querySelectorAll('.my-orders-table tbody tr.clickable').forEach(row => {
+            row.addEventListener('click', function() {
+                const orderId = this.getAttribute('data-order-id');
+                if (orderId) {
+                    openEditOrderModal(orderId);
+                }
+            });
+        });
+        
+        console.log('Finished populating orders table');
+    }
+
+    // Function to load all orders for all accounts
+    async function loadAllOrders() {
+        try {
+            // Add cache-busting parameter to ensure we get fresh data
+            const cacheBuster = new Date().getTime();
+            const url = `/api/accounts/orders/all?_=${cacheBuster}`;
+            
+            // Get all orders including filled ones from accounts/orders/all endpoint
+            const response = await fetch(url, {
+                headers: {
+                    'Cache-Control': 'no-cache, no-store, must-revalidate',
+                    'Pragma': 'no-cache',
+                    'Expires': '0'
+                }
+            });
+            
+            if (!response.ok) {
+                throw new Error('Failed to fetch all orders');
+            }
+            
+            const orders = await response.json();
+            
+            // Handle different response formats
+            let ordersList = orders;
+            if (orders.orders) { // Legacy format has { orders: [...] }
+                ordersList = orders.orders;
+            }
+            
+            console.log(`Successfully loaded ${ordersList.length} orders from all accounts`);
+            populateAllOrdersBook(ordersList);
+        } catch (error) {
+            console.error('Error loading all orders:', error);
+            // Don't show error UI, just keep trying
+        }
+    }
+
+    // Function to populate the all orders book
+    function populateAllOrdersBook(orders) {
+        const bidTableBody = document.querySelector('#internal-book .bids .bids-body');
+        const askTableBody = document.querySelector('#internal-book .asks .asks-body');
+        
+        if (!bidTableBody || !askTableBody) return;
+        
+        // Clear existing orders
+        bidTableBody.innerHTML = '';
+        askTableBody.innerHTML = '';
+        
+        if (orders.length === 0) {
+            bidTableBody.innerHTML = '<tr><td colspan="7" class="text-center">No buy orders</td></tr>';
+            askTableBody.innerHTML = '<tr><td colspan="7" class="text-center">No sell orders</td></tr>';
+            return;
+        }
+        
+        // Split orders into bids and asks without filtering by symbol or status
+        const bids = orders.filter(order => order.type.toLowerCase() === 'buy');
+        const asks = orders.filter(order => order.type.toLowerCase() === 'sell');
+        
+        console.log(`Found ${bids.length} buy orders and ${asks.length} sell orders`);
+        console.log(`Order statuses: ${new Set(orders.map(o => o.status))}`);
+        
+        // Sort bids by price (descending) and then by timestamp (ascending)
+        bids.sort((a, b) => {
+            const priceDiff = parseFloat(b.price) - parseFloat(a.price);
+            if (priceDiff !== 0) return priceDiff;
+            return parseFloat(a.timestamp) - parseFloat(b.timestamp);
+        });
+        
+        // Sort asks by price (ascending) and then by timestamp (ascending)
+        asks.sort((a, b) => {
+            const priceDiff = parseFloat(a.price) - parseFloat(b.price);
+            if (priceDiff !== 0) return priceDiff;
+            return parseFloat(a.timestamp) - parseFloat(b.timestamp);
+        });
+        
+        // Populate bids
+        if (bids.length === 0) {
+            bidTableBody.innerHTML = '<tr><td colspan="7" class="text-center">No buy orders</td></tr>';
+        } else {
+            bids.forEach(order => {
+                const row = document.createElement('tr');
+                const total = order.total.toFixed(2);
+                const time = new Date(order.timestamp * 1000).toLocaleTimeString();
+                row.innerHTML = `
+                    <td>$${order.price.toFixed(2)}</td>
+                    <td>${order.quantity}</td>
+                    <td>$${total}</td>
+                    <td>${time}</td>
+                `;
+                bidTableBody.appendChild(row);
+            });
+        }
+        
+        // Populate asks
+        if (asks.length === 0) {
+            askTableBody.innerHTML = '<tr><td colspan="7" class="text-center">No sell orders</td></tr>';
+        } else {
+            asks.forEach(order => {
+                const row = document.createElement('tr');
+                const total = order.total.toFixed(2);
+                const time = new Date(order.timestamp * 1000).toLocaleTimeString();
+                row.innerHTML = `
+                    <td>$${order.price.toFixed(2)}</td>
+                    <td>${order.quantity}</td>
+                    <td>$${total}</td>
+                    <td>${time}</td>
+                `;
+                askTableBody.appendChild(row);
+            });
+        }
+    }
+
+    // Function to handle order form submission
+    function handleOrderSubmit() {
+        // Get form data
+        const form = document.getElementById('order-form');
+        const accountSelector = document.getElementById('account-selector');
+        const statusElement = document.getElementById('order-status');
+        const orderTypeInput = document.getElementById('order-type-input');
+        const priceInput = document.getElementById('price');
+        
+        // Clear any previous status
+        if (statusElement) {
+            statusElement.textContent = '';
+            statusElement.className = 'status-message';
+        }
+        
+        // Check if an account is selected
+        if (!accountSelector || !accountSelector.value) {
+            statusElement.textContent = 'Please select a trading account';
+            statusElement.className = 'status-message error';
+            return;
+        }
+        
+        // Get the account ID
+        const accountId = accountSelector.value;
+        
+        // Get the selected symbol - check both hidden input and display element
+        const tradingSymbolInput = document.getElementById('trading-symbol');
+        const symbolText = document.getElementById('selected-ticker');
+        
+        let symbol = '';
+        
+        // First try to get it from the hidden input
+        if (tradingSymbolInput && tradingSymbolInput.value) {
+            symbol = tradingSymbolInput.value.trim();
+        } 
+        // If that's empty, try to get it from the display element
+        else if (symbolText && symbolText.textContent && symbolText.textContent !== 'No ticker selected') {
+            symbol = symbolText.textContent.trim();
+            // Update the hidden input
+            if (tradingSymbolInput) {
+                tradingSymbolInput.value = symbol;
+            }
+        }
+        
+        // Check if a symbol is selected
+        if (!symbol) {
+            statusElement.textContent = 'Please select a symbol first. Enter a stock symbol like AAPL and press Enter or click Select.';
+            statusElement.className = 'status-message error';
+            return;
+        }
+        
+        // Validate price for limit orders
+        const orderType = orderTypeInput.value;
+        if (orderType === 'limit' && (!priceInput.value || parseFloat(priceInput.value) <= 0)) {
+            statusElement.textContent = 'Please enter a valid price for limit orders';
+            statusElement.className = 'status-message error';
+            return;
+        }
+        
+        // Double check the symbol is set in the form
+        const symbolInput = document.getElementById('symbol');
+        if (symbolInput && !symbolInput.value) {
+            symbolInput.value = symbol;
+        }
+        
+        // Update the hidden inputs
+        document.getElementById('account-id').value = accountId;
+        document.getElementById('trading-symbol').value = symbol;
+        
+        // Create order data object
+        const formData = new FormData(form);
+        const orderData = {};
+        formData.forEach((value, key) => {
+            orderData[key] = value;
+        });
+        
+        // For market orders, ensure price is set to 0
+        if (orderType === 'market') {
+            orderData.price = '0';
+        }
+        
+        // Log what we're about to submit
+        console.log('Submitting order:', orderData);
+        
+        // Show loading status
+        statusElement.textContent = 'Submitting order...';
+        statusElement.className = 'status-message info';
+        
+        // Submit the order via API
+        submitOrder(accountId, orderData);
+    }
+
+    // Function to submit an order via API
+    async function submitOrder(accountId, orderData) {
+        const statusElement = document.getElementById('order-status');
+        
+        try {
+            const response = await fetch(`/api/accounts/${accountId}/orders/direct`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(orderData)
+            });
+            
+            let result;
+            try {
+                result = await response.json();
+            } catch (e) {
+                throw new Error('Invalid response from server');
+            }
+            
+            if (!response.ok) {
+                throw new Error(result.detail || 'Failed to submit order');
+            }
+            
+            // Show success message
+            statusElement.textContent = `Order submitted successfully! Order ID: ${result.id || 'Unknown'}`;
+            statusElement.className = 'status-message success';
+            
+            // Reset the form quantity but keep the symbol and price
+            document.getElementById('quantity').value = '';
+            
+            // Refresh orders
+            loadAccountOrders(accountId);
+            loadAllOrders();
+            
+        } catch (error) {
+            console.error('Error submitting order:', error);
+            
+            // Show error message
+            statusElement.textContent = `Error: ${error.message || '[object Object]'}`;
+            statusElement.className = 'status-message error';
+        }
+    }
+
+    // Function to load recent trades
+    async function loadRecentTrades() {
+        try {
+            const response = await fetch('/api/trades/recent');
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            const trades = await response.json();
+            populateRecentTradesTable(trades);
+        } catch (error) {
+            console.error('Error loading recent trades:', error);
+        }
+    }
+
+    // Function to populate the recent trades table
+    function populateRecentTradesTable(trades) {
+        const tableBody = document.querySelector('#recent-trades .trades-table tbody');
+        if (!tableBody) {
+            console.error('Recent trades table body not found');
+            return;
+        }
+        
+        // Clear existing trades
+        tableBody.innerHTML = '';
+        
+        if (!trades || trades.length === 0) {
+            tableBody.innerHTML = '<tr><td colspan="5" class="text-center">No recent trades</td></tr>';
+            return;
+        }
+        
+        trades.forEach(trade => {
+            const row = document.createElement('tr');
+            row.classList.add('clickable');
+            
+            // Add trade ID as a data attribute
+            if (trade.id) {
+                row.setAttribute('data-trade-id', trade.id);
+            }
+            
+            // Add all trade data as attributes for the modal
+            row.setAttribute('data-trade', JSON.stringify(trade));
+            
+            // Format the trade ID - show only a shortened version
+            let displayId = trade.id || '';
+            if (displayId.length > 12) {
+                // If it starts with T- keep that prefix and show only a portion
+                if (displayId.startsWith('T-')) {
+                    const parts = displayId.split('-');
+                    if (parts.length >= 2) {
+                        displayId = `T-${parts[1].substring(0, 8)}...`;
+                    } else {
+                        displayId = displayId.substring(0, 10) + '...';
+                    }
+                } else {
+                    displayId = displayId.substring(0, 10) + '...';
+                }
+            }
+            
+            row.innerHTML = `
+                <td>${displayId}</td>
+                <td>${trade.symbol}</td>
+                <td>$${parseFloat(trade.price).toFixed(2)}</td>
+                <td>${parseInt(trade.quantity)}</td>
+                <td>$${parseFloat(trade.total).toFixed(2)}</td>
+            `;
+            
+            // Add click event to show details
+            row.addEventListener('click', function() {
+                const tradeData = JSON.parse(this.getAttribute('data-trade'));
+                showTradeDetails(tradeData);
+            });
+            
+            tableBody.appendChild(row);
+        });
+    }
+    
+    // Function to show trade details in modal
+    function showTradeDetails(trade) {
+        const modal = document.getElementById('trade-modal');
+        const detailsContainer = document.getElementById('trade-details');
+        
+        // Format the timestamp
+        const tradeTime = new Date(trade.timestamp * 1000).toLocaleString();
+        
+        detailsContainer.innerHTML = `
+            <div class="detail-row">
+                <span class="detail-label">Trade ID:</span>
+                <span class="detail-value">${trade.id}</span>
+            </div>
+            <div class="detail-row">
+                <span class="detail-label">Symbol:</span>
+                <span class="detail-value">${trade.symbol}</span>
+            </div>
+            <div class="detail-row">
+                <span class="detail-label">Price:</span>
+                <span class="detail-value">$${parseFloat(trade.price).toFixed(2)}</span>
+            </div>
+            <div class="detail-row">
+                <span class="detail-label">Quantity:</span>
+                <span class="detail-value">${parseInt(trade.quantity)}</span>
+            </div>
+            <div class="detail-row">
+                <span class="detail-label">Total Value:</span>
+                <span class="detail-value">$${parseFloat(trade.total).toFixed(2)}</span>
+            </div>
+            <div class="detail-row">
+                <span class="detail-label">Buyer:</span>
+                <span class="detail-value">${trade.buy_account}</span>
+            </div>
+            <div class="detail-row">
+                <span class="detail-label">Seller:</span>
+                <span class="detail-value">${trade.sell_account}</span>
+            </div>
+            <div class="detail-row">
+                <span class="detail-label">Time:</span>
+                <span class="detail-value">${tradeTime}</span>
+            </div>
+        `;
+        
+        // Show the modal
+        modal.style.display = 'block';
+        
+        // Set up close button event
+        document.querySelectorAll('#trade-modal .close-modal').forEach(btn => {
+            btn.onclick = function() {
                 modal.style.display = 'none';
             }
         });
-        
-        // Function to show order details
-        window.showOrderDetails = function(orderDetails) {
-            document.getElementById('detail-order-id').textContent = orderDetails.id || '-';
-            document.getElementById('detail-symbol').textContent = orderDetails.symbol || '-';
-            document.getElementById('detail-type').textContent = orderDetails.type || '-';
-            document.getElementById('detail-order-type').textContent = orderDetails.order_type || '-';
-            document.getElementById('detail-price').textContent = orderDetails.price || '-';
-            document.getElementById('detail-quantity').textContent = orderDetails.quantity || '-';
-            document.getElementById('detail-time').textContent = orderDetails.time || '-';
-            document.getElementById('detail-status').textContent = orderDetails.status || '-';
-            
-            modal.style.display = 'flex';
-        };
+    }
 
-        // Function to fetch and process orders
-        function fetchOrders(type) {
-            const tableBody = document.getElementById(`${type}-orders-body`);
+    // Function to open the edit order modal
+    async function openEditOrderModal(orderId) {
+        console.log(`Opening edit modal for order: ${orderId}`);
+        const modal = document.getElementById('order-modal');
+        const orderDetails = document.getElementById('order-details');
+        const editForm = document.getElementById('edit-order-form');
+        const priceInput = document.getElementById('edit-order-price');
+        const quantityInput = document.getElementById('edit-order-quantity');
+        const orderIdInput = document.getElementById('edit-order-id');
+        const messageElement = document.getElementById('edit-order-message');
+        
+        try {
+            // Clear any previous messages
+            messageElement.textContent = '';
+            messageElement.className = '';
             
-            fetch(`/api/orders/${type}?asset_type=stocks`)
-                .then(response => response.json())
-                .then(data => {
-                    if (!data.orders || data.orders.length === 0) {
-                        tableBody.innerHTML = `<tr><td colspan="3">No ${type} orders</td></tr>`;
-                        return;
+            // Fetch the order details
+            console.log(`Fetching order details from: /api/orders/${orderId}`);
+            const response = await fetch(`/api/orders/${orderId}`);
+            if (!response.ok) {
+                throw new Error(`Error fetching order: ${response.status}`);
+            }
+            
+            const order = await response.json();
+            console.log(`Received order details:`, order);
+            
+            // Display order details
+            orderDetails.innerHTML = `
+                <div class="detail-row">
+                    <span class="detail-label">Order ID:</span>
+                    <span class="detail-value">${order.id}</span>
+                </div>
+                <div class="detail-row">
+                    <span class="detail-label">Symbol:</span>
+                    <span class="detail-value">${order.symbol}</span>
+                </div>
+                <div class="detail-row">
+                    <span class="detail-label">Type:</span>
+                    <span class="detail-value">${order.type.toUpperCase()}</span>
+                </div>
+                <div class="detail-row">
+                    <span class="detail-label">Status:</span>
+                    <span class="detail-value">${order.status}</span>
+                </div>
+            `;
+            
+            // Ensure price and quantity are converted to numbers for the form
+            const orderPrice = typeof order.price === 'string' ? parseFloat(order.price) : order.price;
+            const orderQuantity = typeof order.quantity === 'string' ? parseInt(order.quantity) : order.quantity;
+            
+            // Log the values we're setting
+            console.log(`Setting form values: price=${orderPrice}, quantity=${orderQuantity}`);
+            
+            // Set form values
+            priceInput.value = orderPrice;
+            quantityInput.value = orderQuantity;
+            orderIdInput.value = order.id;
+            
+            // Show modal
+            modal.style.display = 'block';
+            
+            // Set up form submission
+            editForm.onsubmit = async (e) => {
+                e.preventDefault();
+                await updateOrder(order.id);
+            };
+            
+            // Set up close buttons
+            document.querySelectorAll('.close-modal').forEach(btn => {
+                btn.onclick = () => {
+                    modal.style.display = 'none';
+                };
+            });
+            
+        } catch (error) {
+            console.error('Error opening edit modal:', error);
+            alert(`Failed to load order details: ${error.message}`);
+        }
+    }
+    
+    // Function to update an order
+    async function updateOrder(orderId) {
+        console.log(`Starting updateOrder for order ID: ${orderId}`);
+        const modal = document.getElementById('order-modal');
+        const messageElement = document.getElementById('edit-order-message');
+        const priceInput = document.getElementById('edit-order-price');
+        const quantityInput = document.getElementById('edit-order-quantity');
+        
+        const newPrice = parseFloat(priceInput.value);
+        const newQuantity = parseInt(quantityInput.value);
+        
+        console.log(`New values: price=${newPrice}, quantity=${newQuantity}`);
+        
+        if (isNaN(newPrice) || isNaN(newQuantity) || newPrice <= 0 || newQuantity <= 0) {
+            messageElement.textContent = 'Invalid price or quantity values';
+            messageElement.className = 'message error';
+            return;
+        }
+        
+        try {
+            messageElement.textContent = 'Updating order...';
+            messageElement.className = 'message info';
+            
+            // Get the account ID
+            const accountId = document.getElementById('account-id').value;
+            if (!accountId) {
+                throw new Error('No account selected');
+            }
+            
+            console.log(`Using account ID: ${accountId}`);
+            
+            // Show a toast message for better UX
+            showToast('Updating Order', 'Please wait while we update your order...', 'info', 3000);
+            
+            // Prepare the request payload
+            const payload = JSON.stringify({
+                price: newPrice,
+                quantity: newQuantity
+            });
+            
+            console.log('Sending payload:', payload);
+            
+            // First try with orders router endpoint
+            let response = null;
+            let endpoint = '';
+            
+            try {
+                // Call the edit endpoint in the orders router
+                endpoint = `/api/orders/${orderId}/edit`;
+                console.log(`Trying primary endpoint: ${endpoint}`);
+                
+                response = await fetch(endpoint, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: payload
+                });
+                
+                console.log(`Primary endpoint response status: ${response.status}`);
+                
+                if (!response.ok) {
+                    // If that fails, try the accounts router endpoint
+                    endpoint = `/api/accounts/orders/${orderId}/edit`;
+                    console.log(`Trying alternate endpoint: ${endpoint}`);
+                    
+                    response = await fetch(endpoint, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: payload
+                    });
+                    
+                    console.log(`Alternate endpoint response status: ${response.status}`);
+                }
+            } catch (e) {
+                console.error(`Error calling ${endpoint}:`, e);
+                
+                // If the first endpoint fails, try the fallback
+                endpoint = `/api/accounts/orders/${orderId}/edit`;
+                console.log(`Primary endpoint failed, trying fallback: ${endpoint}`);
+                
+                response = await fetch(endpoint, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: payload
+                });
+                
+                console.log(`Fallback endpoint response status: ${response.status}`);
+            }
+            
+            // Handle non-successful response
+            if (!response.ok) {
+                let errorMessage = `Server error: ${response.status}`;
+                try {
+                    const errorData = await response.json();
+                    errorMessage = errorData.detail || errorMessage;
+                } catch (e) {
+                    console.error('Error parsing error response:', e);
+                }
+                throw new Error(errorMessage);
+            }
+            
+            // Parse response
+            const result = await response.json();
+            console.log('Order update response:', result);
+            
+            if (result.success) {
+                messageElement.textContent = 'Order updated successfully!';
+                messageElement.className = 'message success';
+                
+                showToast('Order Updated', 'Your order has been updated successfully', 'success', 5000);
+                
+                // Now explicitly call the confirm-edit endpoint to get the accurate order values
+                try {
+                    const confirmResponse = await fetch(`/api/orders/${orderId}/confirm-edit`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        }
+                    });
+                    
+                    if (confirmResponse.ok) {
+                        const confirmResult = await confirmResponse.json();
+                        console.log('Confirmed order values after edit:', confirmResult);
+                        
+                        if (confirmResult.success && confirmResult.order) {
+                            // Use these confirmed values to update the UI
+                            const orderForDisplay = confirmResult.order;
+                            
+                            // Update the specific order row in the table with confirmed values
+                            updateOrderRowInTable(orderId, orderForDisplay);
+                        }
+                    }
+                } catch (confirmError) {
+                    console.error('Error confirming order values:', confirmError);
+                    // Fall back to using the original result if confirmation fails
+                    if (result.order) {
+                        updateOrderRowInTable(orderId, result.order);
+                    }
+                }
+                
+                // Force a refresh of orders to ensure everything is up to date
+                if (accountId) {
+                    console.log(`Refreshing orders for account: ${accountId}`);
+                    await refreshOrders(accountId, orderId);
+                }
+                
+                // Close modal after delay
+                setTimeout(() => {
+                    modal.style.display = 'none';
+                }, 1500);
+            } else {
+                throw new Error(result.message || 'Failed to update order');
+            }
+            
+        } catch (error) {
+            console.error('Error updating order:', error);
+            messageElement.textContent = `Error: ${error.message}`;
+            messageElement.className = 'message error';
+            showToast('Error', `Failed to update order: ${error.message}`, 'error', 8000);
+        }
+    }
+    
+    // Function to update a specific order row in the table without refreshing everything
+    function updateOrderRowInTable(orderId, updatedOrder) {
+        console.log(`Directly updating row for order: ${orderId}`, updatedOrder);
+        
+        // Save a copy for debugging purposes
+        window.lastUpdatedOrder = JSON.parse(JSON.stringify(updatedOrder));
+        
+        // Ensure the updatedOrder object has numeric values for price and quantity
+        updatedOrder = {
+            ...updatedOrder,
+            price: typeof updatedOrder.price === 'string' ? parseFloat(updatedOrder.price) : updatedOrder.price,
+            quantity: typeof updatedOrder.quantity === 'string' ? parseFloat(updatedOrder.quantity) : updatedOrder.quantity
+        };
+        
+        // Log the processed order data
+        console.log(`Order data for UI update:`, {
+            id: updatedOrder.id,
+            price: updatedOrder.price,
+            quantity: updatedOrder.quantity,
+            type: typeof updatedOrder.price,
+            formattedPrice: updatedOrder.price.toLocaleString('en-US', {
+                style: 'currency',
+                currency: 'USD'
+            })
+        });
+        
+        const orderRow = document.querySelector(`.my-orders-table tbody tr[data-order-id="${orderId}"]`);
+        
+        if (!orderRow) {
+            console.warn(`Could not find row for order ${orderId} in the table, will try to refresh all orders`);
+            // If we can't find the row, force a full refresh
+            setTimeout(() => {
+                loadAccountOrders(document.getElementById('account-id').value);
+            }, 500);
+            return false;
+        }
+        
+        try {
+            // Convert all potentially string values to numbers for calculation
+            let displayQuantity = parseFloat(updatedOrder.quantity);
+            const filledQuantity = parseFloat(updatedOrder.filled_quantity || 0);
+            
+            if (updatedOrder.status === 'partially_filled' && filledQuantity > 0) {
+                displayQuantity = Math.max(0, displayQuantity - filledQuantity);
+            }
+            
+            // Format the price and quantity
+            const price = parseFloat(updatedOrder.price);
+            const total = price * displayQuantity;
+            
+            // Format with proper currency and thousands separators
+            const formattedPrice = price.toLocaleString('en-US', {
+                style: 'currency',
+                currency: 'USD',
+                minimumFractionDigits: 2
+            });
+            
+            const formattedTotal = total.toLocaleString('en-US', {
+                style: 'currency',
+                currency: 'USD',
+                minimumFractionDigits: 2
+            });
+            
+            // Update the order status class
+            orderRow.classList.remove('order-open', 'order-filled', 'order-cancelled', 'order-partially-filled');
+            if (updatedOrder.status === 'filled') {
+                orderRow.classList.add('order-filled');
+            } else if (updatedOrder.status === 'cancelled') {
+                orderRow.classList.add('order-cancelled');
+            } else if (updatedOrder.status === 'partially_filled') {
+                orderRow.classList.add('order-partially-filled');
+            } else {
+                orderRow.classList.add('order-open');
+            }
+            
+            // Update cells in the row
+            const cells = orderRow.querySelectorAll('td');
+            if (cells.length >= 7) {
+                // Create data attributes with the actual values
+                orderRow.setAttribute('data-price', price);
+                orderRow.setAttribute('data-quantity', displayQuantity);
+                
+                // Price is in the 3rd column (index 2)
+                cells[2].innerHTML = formattedPrice;
+                
+                // Quantity is in the 4th column (index 3)
+                cells[3].innerHTML = displayQuantity.toLocaleString();
+                
+                // Total is in the 5th column (index 4)
+                cells[4].innerHTML = formattedTotal;
+                
+                // Status is in the 7th column (index 6)
+                let statusHTML = `<span class="order-status ${updatedOrder.status || 'open'}">${updatedOrder.status || 'open'}</span>`;
+                
+                // Add filled quantity information for partially filled orders
+                if (updatedOrder.status === 'partially_filled' && filledQuantity > 0) {
+                    statusHTML += `<div class="filled-info">(${filledQuantity} filled)</div>`;
+                }
+                
+                cells[6].innerHTML = statusHTML;
+                
+                // Add a visual indication that the row was updated
+                orderRow.classList.add('row-updated');
+                setTimeout(() => {
+                    orderRow.classList.remove('row-updated');
+                }, 3000);
+                
+                console.log(`Successfully updated row for order ${orderId} with price ${formattedPrice}`);
+                return true;
+            }
+        } catch (e) {
+            console.error(`Error updating row for order ${orderId}:`, e);
+        }
+        return false;
+    }
+    
+    // Function to cancel an order
+    async function cancelOrder(orderId) {
+        try {
+            // Get the account ID
+            const accountId = document.getElementById('account-id').value;
+            if (!accountId) {
+                showToast('Error', 'No account selected', 'error', 3000);
+                return;
+            }
+            
+            // Show loading state in the UI (but no toast yet)
+            const orderRow = document.querySelector(`tr[data-order-id="${orderId}"]`);
+            if (orderRow) {
+                // Add a visual indicator to the row being cancelled
+                orderRow.classList.add('cancelling');
+            }
+            
+            // Make the cancel API request
+            const response = await fetch(`/api/accounts/${accountId}/orders/${orderId}/cancel`, {
+                method: 'POST',
+                headers: {
+                    'Cache-Control': 'no-cache, no-store, must-revalidate',
+                    'Pragma': 'no-cache'
+                }
+            });
+            
+            // Log the raw response for debugging
+            console.log('Cancel order response status:', response.status);
+            
+            // Handle non-successful response before parsing JSON
+            if (!response.ok) {
+                let errorMessage = `Server error: ${response.status}`;
+                try {
+                    const errorData = await response.json();
+                    errorMessage = errorData.detail || errorMessage;
+                } catch (e) {
+                    console.error('Error parsing error response:', e);
+                }
+                
+                // Remove the cancelling class
+                if (orderRow) {
+                    orderRow.classList.remove('cancelling');
+                }
+                
+                throw new Error(errorMessage);
+            }
+            
+            // Parse the JSON response
+            const result = await response.json();
+            console.log('Cancel order response:', result);
+            
+            if (result.success) {
+                // Show success message
+                showToast('Success', 'Order cancelled successfully', 'success', 3000);
+                
+                // Update the row directly to show cancelled state
+                if (orderRow) {
+                    // Mark it as cancelled directly in the UI before refreshing
+                    const statusCell = orderRow.querySelector('td:nth-child(7)');
+                    if (statusCell) {
+                        statusCell.innerHTML = '<span class="order-status cancelled">cancelled</span>';
                     }
                     
-                    let html = '';
-                    data.orders.forEach(order => {
-                        const orderClass = order.type === 'buy' ? 'buy-order' : 'sell-order';
-                        html += `
-                        <tr class="order-row ${orderClass}" data-order='${JSON.stringify(order.details)}'>
-                            <td>${order.symbol}</td>
-                            <td>$${order.price.toFixed(2)}</td>
-                            <td>${order.quantity}</td>
-                        </tr>
-                        `;
-                    });
+                    // Remove the actions cell buttons
+                    const actionsCell = orderRow.querySelector('td:nth-child(8)');
+                    if (actionsCell) {
+                        actionsCell.innerHTML = '';
+                    }
                     
-                    tableBody.innerHTML = html;
-                    
-                    // Add click listeners to the new rows
-                    document.querySelectorAll('.order-row').forEach(row => {
-                        row.addEventListener('click', function() {
-                            const orderDetails = JSON.parse(this.getAttribute('data-order'));
-                            showOrderDetails(orderDetails);
-                        });
-                    });
-                })
-                .catch(error => {
-                    console.error('Error fetching orders:', error);
-                    tableBody.innerHTML = `<tr><td colspan="3">Error loading orders</td></tr>`;
-                });
+                    // Remove the clickable class since it can't be edited anymore
+                    orderRow.classList.remove('clickable', 'cancelling');
+                }
+                
+                // Then refresh orders in the background
+                refreshOrders(accountId, orderId);
+            } else {
+                // Remove the cancelling class
+                if (orderRow) {
+                    orderRow.classList.remove('cancelling');
+                }
+                
+                throw new Error(result.message || 'Failed to cancel order');
+            }
+            
+        } catch (error) {
+            console.error('Error cancelling order:', error);
+            showToast('Error', `Failed to cancel order: ${error.message}`, 'error', 5000);
+            
+            // Ensure the full refresh happens on error
+            const accountId = document.getElementById('account-id').value;
+            if (accountId) {
+                setTimeout(() => refreshOrders(accountId), 500);
+            }
         }
+    }
 
-        // Initial load of orders
-        fetchOrders('open');
-        fetchOrders('filled');
-        fetchOrders('cancelled');
+    // Function to refresh orders after an action
+    async function refreshOrders(accountId, orderId) {
+        console.log(`Refreshing orders for account ${accountId}, order ${orderId}`);
+        try {
+            // If we have a specific order ID, first try to refresh just that order
+            if (orderId) {
+                try {
+                    // Use the confirm-edit endpoint to get normalized values
+                    const confirmResponse = await fetch(`/api/orders/${orderId}/confirm-edit`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        }
+                    });
+                    
+                    if (confirmResponse.ok) {
+                        const confirmResult = await confirmResponse.json();
+                        console.log(`Confirmed order values:`, confirmResult);
+                        
+                        if (confirmResult.success && confirmResult.order) {
+                            // Update this specific order in the table with confirmed values
+                            const updated = updateOrderRowInTable(orderId, confirmResult.order);
+                            if (updated) {
+                                console.log(`Successfully updated order row for ${orderId} with confirmed values`);
+                                // Add visual indication that update was successful
+                                showToast('Order Updated', 'Your order has been updated with the new values', 'success', 3000);
+                            } else {
+                                console.log(`Could not update row directly, will refresh all orders`);
+                            }
+                        }
+                    } else {
+                        // Fall back to the standard order fetch if confirm-edit fails
+                        console.log(`Confirm-edit failed, falling back to standard fetch`);
+                        const orderResponse = await fetch(`/api/orders/${orderId}`);
+                        if (orderResponse.ok) {
+                            const updatedOrder = await orderResponse.json();
+                            console.log(`Fetched updated order: ${orderId}`, updatedOrder);
+                            
+                            // Update this specific order in the table
+                            const updated = updateOrderRowInTable(orderId, updatedOrder);
+                            if (updated) {
+                                console.log(`Successfully updated order row for ${orderId}`);
+                            } else {
+                                console.log(`Could not update row directly, will refresh all orders`);
+                            }
+                        }
+                    }
+                } catch (err) {
+                    console.warn(`Error fetching specific order ${orderId}: ${err.message}`);
+                }
+            }
+            
+            // Then load all account orders to fully refresh the table
+            if (accountId) {
+                await loadAccountOrders(accountId);
+            }
+            
+            // Refresh the full order book
+            await loadAllOrders();
+            
+            console.log('Orders refreshed successfully');
+        } catch (error) {
+            console.error('Error refreshing orders:', error);
+        }
+    }
+
+    // Function to generate fake bids and asks
+    function startFakeOrderBookUpdates() {
+        const bidTableBody = document.querySelector('#external-book .bids .bids-body');
+        const askTableBody = document.querySelector('#external-book .asks .asks-body');
+        const lastOrderTimeElement = document.getElementById('last-order-time');
         
-        // Set interval to refresh orders periodically
-        setInterval(() => {
-            fetchOrders('open');
-            fetchOrders('filled');
-            fetchOrders('cancelled');
-        }, 2000);
-    });
+        if (!bidTableBody || !askTableBody) {
+            console.error('Order book elements not found');
+            return;
+        }
+        
+        // Base prices and quantities for realistic simulation
+        const baseAskPrice = 170.25;
+        const baseBidPrice = 170.00;
+        
+        // Function to generate a random order
+        function generateRandomOrder(basePrice, isBid) {
+            // Creates a small price adjustment within ±0.50
+            const priceAdjustment = (Math.random() * 0.5) * (isBid ? -1 : 1);
+            const price = basePrice + priceAdjustment;
+            
+            // Random quantity between 10 and 100, in multiples of 10
+            const quantity = Math.floor(Math.random() * 10 + 1) * 10;
+            
+            // Current time
+            const timestamp = new Date();
+            
+            return {
+                price: price,
+                quantity: quantity,
+                total: price * quantity,
+                timestamp: timestamp
+            };
+        }
+        
+        // Function to create random orders
+        function createRandomOrders() {
+            // Create 8-12 random bids
+            const bids = [];
+            const bidCount = Math.floor(Math.random() * 5) + 8;
+            
+            for (let i = 0; i < bidCount; i++) {
+                bids.push(generateRandomOrder(baseBidPrice, true));
+            }
+            
+            // Sort bids in descending order by price (highest bids first)
+            bids.sort((a, b) => b.price - a.price);
+            
+            // Create 8-12 random asks
+            const asks = [];
+            const askCount = Math.floor(Math.random() * 5) + 8;
+            
+            for (let i = 0; i < askCount; i++) {
+                asks.push(generateRandomOrder(baseAskPrice, false));
+            }
+            
+            // Sort asks in ascending order by price (lowest asks first)
+            asks.sort((a, b) => a.price - b.price);
+            
+            return { bids, asks };
+        }
+        
+        // Function to update the order book with new data
+        function updateOrderBook() {
+            const { bids, asks } = createRandomOrders();
+            
+            // Update the bid table
+            bidTableBody.innerHTML = formatOrders(bids);
+            
+            // Update the ask table
+            askTableBody.innerHTML = formatOrders(asks);
+            
+            // Update the last order time
+            const now = new Date();
+            lastOrderTimeElement.textContent = now.toLocaleTimeString();
+        }
+        
+        // Format orders for display in the table
+        function formatOrders(orders) {
+            if (!orders || orders.length === 0) {
+                return '<tr><td colspan="4">No orders</td></tr>';
+            }
+            
+            return orders.map(order => {
+                const total = order.total.toFixed(2);
+                const time = order.timestamp.toLocaleTimeString();
+                return `
+                    <tr>
+                        <td>$${order.price.toFixed(2)}</td>
+                        <td>${order.quantity}</td>
+                        <td>$${total}</td>
+                        <td>${time}</td>
+                    </tr>
+                `;
+            }).join('');
+        }
+        
+        // Initial update
+        updateOrderBook();
+        
+        // Update every second
+        setInterval(updateOrderBook, 1000);
+    }
 </script>
 {% endblock %} 

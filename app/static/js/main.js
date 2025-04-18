@@ -145,6 +145,79 @@ function initWebSocket() {
             case 'error':
                 showError(data.message);
                 break;
+            case 'toast':
+                showToast(data.title, data.message, data.variant, data.duration);
+                break;
+            case 'notification':
+                console.log('Received notification:', data);
+                break;
+            case 'trade_executed':
+                // Handle trade execution notification
+                console.log('Received trade execution notification, updating UI...');
+                
+                // Show a notification for the trade
+                if (data.buy_order_id || data.sell_order_id) {
+                    const symbol = data.symbol || '';
+                    const price = data.price ? `$${parseFloat(data.price).toFixed(2)}` : '';
+                    const quantity = data.quantity || '';
+                    const side = data.buy_order_id ? 'Buy' : 'Sell';
+                    const tradeValue = price && quantity ? `$${(parseFloat(price.replace('$', '')) * parseFloat(quantity)).toFixed(2)}` : '';
+                    
+                    // Create custom HTML content for the notification
+                    const customTitle = `<div style="display: flex; align-items: center;">
+                        <span style="color: var(--success-color); margin-right: 8px;">✓</span>
+                        <span>Order Matched!</span>
+                    </div>`;
+                    
+                    const customMessage = `<div style="margin-top: 5px;">
+                        <div style="font-weight: bold; font-size: 16px;">${symbol}</div>
+                        <div style="display: flex; justify-content: space-between; margin-top: 4px;">
+                            <span>${side} ${quantity} shares</span>
+                            <span>${price}</span>
+                        </div>
+                        <div style="color: var(--text-muted); text-align: right; margin-top: 2px; font-size: 12px;">
+                            Total: ${tradeValue}
+                        </div>
+                    </div>`;
+                    
+                    // Create and show a custom toast
+                    const toast = showToast(
+                        'Order Matched!', 
+                        `${symbol}: ${quantity} shares at ${price}`, 
+                        'success', 
+                        8000
+                    );
+                    
+                    // Update the toast content with our custom HTML
+                    const toastTitle = toast.querySelector('.toast-title');
+                    const toastMessage = toast.querySelector('.toast-message');
+                    
+                    if (toastTitle && toastMessage) {
+                        toastTitle.innerHTML = customTitle;
+                        toastMessage.innerHTML = customMessage;
+                    }
+                    
+                    // Play notification sound
+                    const audio = document.getElementById('order-match-sound');
+                    if (audio) {
+                        audio.currentTime = 0; // Reset to beginning
+                        audio.play().catch(e => console.warn('Could not play notification sound:', e));
+                    }
+                }
+                
+                // Update trades list if applicable
+                updateTrades([data]);
+                
+                // Check if the order was removed
+                if (data.order_removed) {
+                    // Force refresh of all order tables
+                    refreshOrderLists();
+                }
+                break;
+            case 'orders_updated':
+                // Force refresh all order lists when orders are updated
+                refreshOrderLists();
+                break;
         }
     }
 
@@ -177,11 +250,165 @@ function initWebSocket() {
     }
 
     function showError(message) {
-        const errorDiv = document.createElement('div');
-        errorDiv.className = 'error-message';
-        errorDiv.textContent = message;
-        document.body.appendChild(errorDiv);
-        setTimeout(() => errorDiv.remove(), 5000);
+        showToast('Error', message, 'error');
+    }
+    
+    /**
+     * Display a toast notification
+     * @param {string} title - Toast title
+     * @param {string} message - Toast message
+     * @param {string} variant - success, error, info, warning
+     * @param {number} duration - Duration in ms (default: 5000)
+     * @returns {HTMLElement} - The toast element
+     */
+    function showToast(title, message, variant = 'info', duration = 5000) {
+        // Create toast container if it doesn't exist
+        let toastContainer = document.getElementById('toast-container');
+        if (!toastContainer) {
+            toastContainer = document.createElement('div');
+            toastContainer.id = 'toast-container';
+            toastContainer.style.position = 'fixed';
+            toastContainer.style.top = '20px';
+            toastContainer.style.right = '20px';
+            toastContainer.style.zIndex = '9999';
+            toastContainer.style.display = 'flex';
+            toastContainer.style.flexDirection = 'column';
+            toastContainer.style.gap = '10px';
+            document.body.appendChild(toastContainer);
+        }
+        
+        // Create toast element
+        const toast = document.createElement('div');
+        toast.className = `toast toast-${variant}`;
+        toast.style.backgroundColor = 'var(--card-dark)';
+        toast.style.color = 'var(--text-dark)';
+        toast.style.border = `1px solid var(--${variant}-color, var(--primary-color))`;
+        toast.style.borderLeft = `4px solid var(--${variant}-color, var(--primary-color))`;
+        toast.style.borderRadius = '0px';
+        toast.style.padding = '12px 16px';
+        toast.style.minWidth = '300px';
+        toast.style.maxWidth = '400px';
+        toast.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.15)';
+        toast.style.display = 'flex';
+        toast.style.flexDirection = 'column';
+        toast.style.opacity = '0';
+        toast.style.transform = 'translateX(20px)';
+        toast.style.transition = 'opacity 0.3s, transform 0.3s';
+        
+        // Toast title
+        const toastTitle = document.createElement('div');
+        toastTitle.className = 'toast-title';
+        toastTitle.textContent = title;
+        toastTitle.style.fontWeight = 'bold';
+        toastTitle.style.marginBottom = '4px';
+        toastTitle.style.color = `var(--${variant}-color, var(--primary-color))`;
+        
+        // Toast message
+        const toastMessage = document.createElement('div');
+        toastMessage.className = 'toast-message';
+        toastMessage.textContent = message;
+        
+        // Close button
+        const closeBtn = document.createElement('button');
+        closeBtn.className = 'toast-close';
+        closeBtn.innerHTML = '&times;';
+        closeBtn.style.position = 'absolute';
+        closeBtn.style.top = '8px';
+        closeBtn.style.right = '8px';
+        closeBtn.style.background = 'transparent';
+        closeBtn.style.border = 'none';
+        closeBtn.style.color = 'var(--text-muted)';
+        closeBtn.style.fontSize = '16px';
+        closeBtn.style.cursor = 'pointer';
+        closeBtn.style.padding = '0';
+        closeBtn.style.width = '20px';
+        closeBtn.style.height = '20px';
+        closeBtn.style.display = 'flex';
+        closeBtn.style.alignItems = 'center';
+        closeBtn.style.justifyContent = 'center';
+        
+        // Append elements
+        toast.appendChild(toastTitle);
+        toast.appendChild(toastMessage);
+        toast.appendChild(closeBtn);
+        toastContainer.appendChild(toast);
+        
+        // Animate in
+        setTimeout(() => {
+            toast.style.opacity = '1';
+            toast.style.transform = 'translateX(0)';
+        }, 10);
+        
+        // Set up close button
+        closeBtn.addEventListener('click', () => {
+            removeToast(toast);
+        });
+        
+        // Auto remove after duration
+        const timeoutId = setTimeout(() => {
+            removeToast(toast);
+        }, duration);
+        
+        // Store timeout ID to clear it if manually closed
+        toast._timeoutId = timeoutId;
+        
+        function removeToast(toast) {
+            // Clear the timeout
+            if (toast._timeoutId) {
+                clearTimeout(toast._timeoutId);
+            }
+            
+            // Animate out
+            toast.style.opacity = '0';
+            toast.style.transform = 'translateX(20px)';
+            
+            // Remove after animation completes
+            setTimeout(() => {
+                toast.remove();
+                
+                // Remove container if empty
+                if (toastContainer.children.length === 0) {
+                    toastContainer.remove();
+                }
+            }, 300);
+        }
+        
+        return toast;
+    }
+    
+    function refreshOrderLists() {
+        // Refresh orders in all tabs and sections
+        
+        // 1. Send event to refresh the orderbook
+        const orderBookEvent = new CustomEvent('orderBookRefresh');
+        window.dispatchEvent(orderBookEvent);
+        
+        // 2. Force refresh all orders tables using HTMX
+        const ordersElements = document.querySelectorAll('[hx-trigger="load"]');
+        ordersElements.forEach(element => {
+            if (element.getAttribute('hx-get') && 
+                (element.getAttribute('hx-get').includes('/orders') || 
+                 element.getAttribute('hx-get').includes('/api/orders'))) {
+                // Trigger HTMX to reload this content
+                htmx.trigger(element, 'load');
+            }
+        });
+        
+        // 3. Find and refresh all tables with specific IDs
+        const orderTables = [
+            'open-orders-table',
+            'all-orders-table',
+            'active-orders-body',
+            'all-orders-body',
+            'account-orders-body'
+        ];
+        
+        orderTables.forEach(tableId => {
+            const table = document.getElementById(tableId);
+            if (table && table.getAttribute('hx-get')) {
+                htmx.trigger(table, 'load');
+            }
+        });
     }
     
     // Start the initial connection

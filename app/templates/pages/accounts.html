@@ -1,0 +1,562 @@
+{% extends "layouts/base.html" %}
+
+{% block title %}Order Entry System - Account Management{% endblock %}
+
+{% block accounts_active %}active{% endblock %}
+
+{% block additional_styles %}
+<link rel="stylesheet" href="/static/css/accounts.css">
+{% endblock %}
+
+{% block additional_head %}
+<script type="module">
+    document.addEventListener('DOMContentLoaded', function() {
+        // Initialize accounts data
+        fetchAccounts();
+        
+        // Setup event listeners
+        document.getElementById('create-account-form').addEventListener('submit', createAccount);
+        document.getElementById('refresh-accounts').addEventListener('click', fetchAccounts);
+        
+        // Setup tab navigation
+        const tabs = document.querySelectorAll('.tab-btn');
+        tabs.forEach(tab => {
+            tab.addEventListener('click', () => {
+                // Remove active class from all tabs
+                tabs.forEach(t => t.classList.remove('active'));
+                // Add active class to clicked tab
+                tab.classList.add('active');
+                
+                // Show/hide corresponding sections
+                const tabId = tab.dataset.tabId;
+                document.querySelectorAll('.tab-content').forEach(section => {
+                    section.style.display = 'none';
+                });
+                document.getElementById(tabId).style.display = 'block';
+            });
+        });
+    });
+    
+    async function fetchAccounts() {
+        try {
+            const response = await fetch('/api/accounts/');
+            if (!response.ok) {
+                throw new Error('Failed to fetch accounts');
+            }
+            
+            const accounts = await response.json();
+            displayAccounts(accounts);
+        } catch (error) {
+            console.error('Error fetching accounts:', error);
+            showMessage('error', 'Failed to load accounts: ' + error.message);
+        }
+    }
+    
+    function displayAccounts(accounts) {
+        const tableBody = document.getElementById('accounts-table-body');
+        tableBody.innerHTML = '';
+        
+        if (accounts.length === 0) {
+            tableBody.innerHTML = '<tr><td colspan="7" class="text-center">No accounts found</td></tr>';
+            return;
+        }
+        
+        accounts.forEach(account => {
+            const row = document.createElement('tr');
+            row.innerHTML = `
+                <td>${account.account_id.slice(0, 8)}...</td>
+                <td>${account.name}</td>
+                <td>$${parseFloat(account.balance).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
+                <td>${account.account_type}</td>
+                <td>${account.risk_level}</td>
+                <td><span class="status-badge ${account.active ? 'active' : 'inactive'}">${account.active ? 'Active' : 'Inactive'}</span></td>
+                <td>
+                    <button class="btn btn-sm btn-primary view-account" data-account-id="${account.account_id}">View</button>
+                    <button class="btn btn-sm btn-secondary deposit-funds" data-account-id="${account.account_id}">Deposit</button>
+                </td>
+            `;
+            tableBody.appendChild(row);
+        });
+        
+        // Add event listeners for view buttons
+        document.querySelectorAll('.view-account').forEach(button => {
+            button.addEventListener('click', function() {
+                const accountId = this.dataset.accountId;
+                viewAccount(accountId);
+            });
+        });
+        
+        // Add event listeners for deposit buttons
+        document.querySelectorAll('.deposit-funds').forEach(button => {
+            button.addEventListener('click', function() {
+                const accountId = this.dataset.accountId;
+                showDepositModal(accountId);
+            });
+        });
+    }
+    
+    async function createAccount(event) {
+        event.preventDefault();
+        
+        const formData = {
+            name: document.getElementById('account-name').value,
+            initial_balance: parseFloat(document.getElementById('initial-balance').value),
+            account_type: document.getElementById('account-type').value,
+            risk_level: document.getElementById('risk-level').value
+        };
+        
+        try {
+            const response = await fetch('/api/accounts/', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(formData)
+            });
+            
+            if (!response.ok) {
+                const error = await response.json();
+                throw new Error(error.detail || 'Failed to create account');
+            }
+            
+            const account = await response.json();
+            showMessage('success', `Account "${account.name}" created successfully`);
+            
+            // Reset form and refresh accounts
+            event.target.reset();
+            fetchAccounts();
+            
+        } catch (error) {
+            console.error('Error creating account:', error);
+            showMessage('error', 'Failed to create account: ' + error.message);
+        }
+    }
+    
+    async function viewAccount(accountId) {
+        try {
+            // Fetch account details
+            const accountResponse = await fetch(`/api/accounts/${accountId}`);
+            if (!accountResponse.ok) {
+                throw new Error('Failed to fetch account details');
+            }
+            const account = await accountResponse.json();
+            
+            // Fetch account positions
+            const positionsResponse = await fetch(`/api/accounts/${accountId}/positions`);
+            if (!positionsResponse.ok) {
+                throw new Error('Failed to fetch positions');
+            }
+            const positions = await positionsResponse.json();
+            
+            // Fetch account transactions
+            const transactionsResponse = await fetch(`/api/accounts/${accountId}/transactions`);
+            if (!transactionsResponse.ok) {
+                throw new Error('Failed to fetch transactions');
+            }
+            const transactions = await transactionsResponse.json();
+            
+            // Fetch account orders
+            const ordersResponse = await fetch(`/api/accounts/${accountId}/orders`);
+            if (!ordersResponse.ok) {
+                throw new Error('Failed to fetch orders');
+            }
+            const orders = await ordersResponse.json();
+            
+            // Display the account details
+            document.getElementById('account-id-display').textContent = account.account_id;
+            document.getElementById('account-name-display').textContent = account.name;
+            document.getElementById('account-balance-display').textContent = `$${parseFloat(account.balance).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+            document.getElementById('account-type-display').textContent = account.account_type;
+            document.getElementById('account-risk-display').textContent = account.risk_level;
+            document.getElementById('account-status-display').textContent = account.active ? 'Active' : 'Inactive';
+            
+            // Display positions
+            const positionsTable = document.getElementById('positions-table-body');
+            positionsTable.innerHTML = '';
+            
+            if (positions.length === 0) {
+                positionsTable.innerHTML = '<tr><td colspan="5" class="text-center">No positions found</td></tr>';
+            } else {
+                positions.forEach(position => {
+                    const row = document.createElement('tr');
+                    row.innerHTML = `
+                        <td>${position.symbol}</td>
+                        <td>${position.quantity}</td>
+                        <td>$${parseFloat(position.avg_price).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
+                        <td>$${(position.quantity * position.avg_price).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
+                    `;
+                    positionsTable.appendChild(row);
+                });
+            }
+            
+            // Display transactions
+            const transactionsTable = document.getElementById('transactions-table-body');
+            transactionsTable.innerHTML = '';
+            
+            if (transactions.length === 0) {
+                transactionsTable.innerHTML = '<tr><td colspan="5" class="text-center">No transactions found</td></tr>';
+            } else {
+                transactions.forEach(transaction => {
+                    const row = document.createElement('tr');
+                    row.innerHTML = `
+                        <td>${transaction.created_at}</td>
+                        <td>${transaction.type}</td>
+                        <td>$${parseFloat(transaction.amount).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
+                        <td>$${parseFloat(transaction.balance_after).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
+                        <td>${transaction.description}</td>
+                    `;
+                    transactionsTable.appendChild(row);
+                });
+            }
+            
+            // Display orders
+            const ordersTable = document.getElementById('orders-table-body');
+            ordersTable.innerHTML = '';
+            
+            if (orders.length === 0) {
+                ordersTable.innerHTML = '<tr><td colspan="7" class="text-center">No open orders found</td></tr>';
+            } else {
+                orders.forEach(order => {
+                    const row = document.createElement('tr');
+                    row.innerHTML = `
+                        <td>${order.symbol}</td>
+                        <td>${order.type}</td>
+                        <td>$${parseFloat(order.price).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
+                        <td>${order.quantity}</td>
+                        <td>${order.status}</td>
+                        <td>${order.created_at}</td>
+                        <td>
+                            <button class="btn btn-sm btn-danger cancel-order" data-order-id="${order.id}" data-account-id="${accountId}">Cancel</button>
+                        </td>
+                    `;
+                    ordersTable.appendChild(row);
+                });
+                
+                // Add event listeners for cancel buttons
+                document.querySelectorAll('.cancel-order').forEach(button => {
+                    button.addEventListener('click', function() {
+                        const orderId = this.dataset.orderId;
+                        const accountId = this.dataset.accountId;
+                        cancelOrder(accountId, orderId);
+                    });
+                });
+            }
+            
+            // Show the account details tab
+            document.querySelectorAll('.tab-btn').forEach(tab => tab.classList.remove('active'));
+            document.querySelector('.tab-btn[data-tab-id="account-details-tab"]').classList.add('active');
+            
+            document.querySelectorAll('.tab-content').forEach(content => content.style.display = 'none');
+            document.getElementById('account-details-tab').style.display = 'block';
+            
+        } catch (error) {
+            console.error('Error viewing account:', error);
+            showMessage('error', 'Failed to view account: ' + error.message);
+        }
+    }
+    
+    function showDepositModal(accountId) {
+        // Get the account name
+        const accountName = document.querySelector(`button.deposit-funds[data-account-id="${accountId}"]`).closest('tr').querySelector('td:nth-child(2)').textContent;
+        
+        // Set up the modal
+        document.getElementById('deposit-account-id').value = accountId;
+        document.getElementById('deposit-account-name').textContent = accountName;
+        
+        // Show the modal
+        const modal = document.getElementById('deposit-modal');
+        modal.style.display = 'block';
+        
+        // Set up event listeners
+        document.getElementById('deposit-close').addEventListener('click', () => {
+            modal.style.display = 'none';
+        });
+        
+        document.getElementById('deposit-form').addEventListener('submit', async (event) => {
+            event.preventDefault();
+            
+            const amount = parseFloat(document.getElementById('deposit-amount').value);
+            const description = document.getElementById('deposit-description').value;
+            
+            try {
+                const response = await fetch(`/api/accounts/${accountId}/transactions`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        amount: amount,
+                        transaction_type: 'deposit',
+                        description: description
+                    })
+                });
+                
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || 'Failed to process deposit');
+                }
+                
+                // Close the modal and refresh accounts
+                modal.style.display = 'none';
+                showMessage('success', `Successfully deposited $${amount.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})} to account`);
+                fetchAccounts();
+                
+            } catch (error) {
+                console.error('Error processing deposit:', error);
+                showMessage('error', 'Failed to process deposit: ' + error.message);
+            }
+        });
+    }
+    
+    async function cancelOrder(accountId, orderId) {
+        try {
+            const response = await fetch(`/api/accounts/${accountId}/orders/${orderId}`, {
+                method: 'DELETE'
+            });
+            
+            if (!response.ok) {
+                const error = await response.json();
+                throw new Error(error.detail || 'Failed to cancel order');
+            }
+            
+            showMessage('success', 'Order cancelled successfully');
+            
+            // Refresh account view
+            viewAccount(accountId);
+            
+        } catch (error) {
+            console.error('Error cancelling order:', error);
+            showMessage('error', 'Failed to cancel order: ' + error.message);
+        }
+    }
+    
+    function showMessage(type, message) {
+        const messageDiv = document.getElementById('messages');
+        const alertClass = type === 'error' ? 'alert-danger' : 'alert-success';
+        
+        messageDiv.innerHTML = `
+            <div class="alert ${alertClass} alert-dismissible fade show" role="alert">
+                ${message}
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+            </div>
+        `;
+        
+        // Auto-dismiss after 5 seconds
+        setTimeout(() => {
+            const alert = messageDiv.querySelector('.alert');
+            if (alert) {
+                alert.classList.remove('show');
+                setTimeout(() => {
+                    messageDiv.innerHTML = '';
+                }, 150);
+            }
+        }, 5000);
+    }
+</script>
+{% endblock %}
+
+{% block content %}
+
+<!-- Messages Area -->
+<div id="messages" class="mb-4"></div>
+
+<!-- Account Management Panel -->
+<section class="panel">
+    <div class="panel-header">
+        <h2>Account Management</h2>
+        <button id="refresh-accounts" class="btn btn-sm btn-secondary">Refresh</button>
+    </div>
+    
+    <div class="tabs">
+        <div class="tab-buttons">
+            <button class="tab-btn active" data-tab-id="accounts-list-tab">Accounts</button>
+            <button class="tab-btn" data-tab-id="create-account-tab">Create Account</button>
+            <button class="tab-btn" data-tab-id="account-details-tab">Account Details</button>
+        </div>
+        
+        <div id="accounts-list-tab" class="tab-content">
+            <div class="table-responsive">
+                <table class="table">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Name</th>
+                            <th>Balance</th>
+                            <th>Type</th>
+                            <th>Risk Level</th>
+                            <th>Status</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="accounts-table-body">
+                        <tr>
+                            <td colspan="7" class="text-center">Loading accounts...</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        
+        <div id="create-account-tab" class="tab-content" style="display: none;">
+            <form id="create-account-form" class="form">
+                <div class="form-group">
+                    <label for="account-name">Account Name</label>
+                    <input type="text" id="account-name" class="form-control" required>
+                </div>
+                
+                <div class="form-group">
+                    <label for="initial-balance">Initial Balance ($)</label>
+                    <input type="number" id="initial-balance" class="form-control" min="0" step="0.01" required>
+                </div>
+                
+                <div class="form-group">
+                    <label for="account-type">Account Type</label>
+                    <select id="account-type" class="form-control">
+                        <option value="personal">Personal</option>
+                        <option value="standard">Standard</option>
+                        <option value="institutional">Institutional</option>
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label for="risk-level">Risk Level</label>
+                    <select id="risk-level" class="form-control">
+                        <option value="low">Low</option>
+                        <option value="medium" selected>Medium</option>
+                        <option value="high">High</option>
+                    </select>
+                </div>
+                
+                <button type="submit" class="btn btn-primary mt-3">Create Account</button>
+            </form>
+        </div>
+        
+        <div id="account-details-tab" class="tab-content" style="display: none;">
+            <div class="account-details-header">
+                <h3>Account Details</h3>
+                <div class="account-info-grid">
+                    <div class="info-item">
+                        <span class="label">ID:</span>
+                        <span id="account-id-display" class="value"></span>
+                    </div>
+                    <div class="info-item">
+                        <span class="label">Name:</span>
+                        <span id="account-name-display" class="value"></span>
+                    </div>
+                    <div class="info-item">
+                        <span class="label">Balance:</span>
+                        <span id="account-balance-display" class="value"></span>
+                    </div>
+                    <div class="info-item">
+                        <span class="label">Type:</span>
+                        <span id="account-type-display" class="value"></span>
+                    </div>
+                    <div class="info-item">
+                        <span class="label">Risk Level:</span>
+                        <span id="account-risk-display" class="value"></span>
+                    </div>
+                    <div class="info-item">
+                        <span class="label">Status:</span>
+                        <span id="account-status-display" class="value"></span>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="account-details-content">
+                <div class="detail-section">
+                    <h4>Positions</h4>
+                    <div class="table-responsive">
+                        <table class="table">
+                            <thead>
+                                <tr>
+                                    <th>Symbol</th>
+                                    <th>Quantity</th>
+                                    <th>Avg Price</th>
+                                    <th>Value</th>
+                                </tr>
+                            </thead>
+                            <tbody id="positions-table-body">
+                                <tr>
+                                    <td colspan="4" class="text-center">No positions found</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                
+                <div class="detail-section">
+                    <h4>Open Orders</h4>
+                    <div class="table-responsive">
+                        <table class="table">
+                            <thead>
+                                <tr>
+                                    <th>Symbol</th>
+                                    <th>Type</th>
+                                    <th>Price</th>
+                                    <th>Quantity</th>
+                                    <th>Status</th>
+                                    <th>Created</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="orders-table-body">
+                                <tr>
+                                    <td colspan="7" class="text-center">No open orders found</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                
+                <div class="detail-section">
+                    <h4>Recent Transactions</h4>
+                    <div class="table-responsive">
+                        <table class="table">
+                            <thead>
+                                <tr>
+                                    <th>Date/Time</th>
+                                    <th>Type</th>
+                                    <th>Amount</th>
+                                    <th>Balance After</th>
+                                    <th>Description</th>
+                                </tr>
+                            </thead>
+                            <tbody id="transactions-table-body">
+                                <tr>
+                                    <td colspan="5" class="text-center">No transactions found</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- Deposit Modal -->
+<div id="deposit-modal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h4>Deposit Funds</h4>
+            <button id="deposit-close" class="close-btn">&times;</button>
+        </div>
+        <div class="modal-body">
+            <p>Depositing to account: <span id="deposit-account-name"></span></p>
+            <form id="deposit-form">
+                <input type="hidden" id="deposit-account-id">
+                <div class="form-group">
+                    <label for="deposit-amount">Amount ($)</label>
+                    <input type="number" id="deposit-amount" class="form-control" min="0.01" step="0.01" required>
+                </div>
+                <div class="form-group">
+                    <label for="deposit-description">Description (optional)</label>
+                    <input type="text" id="deposit-description" class="form-control">
+                </div>
+                <button type="submit" class="btn btn-primary mt-3">Deposit Funds</button>
+            </form>
+        </div>
+    </div>
+</div>
+
+{% endblock %} 

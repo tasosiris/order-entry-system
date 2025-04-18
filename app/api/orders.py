@@ -1,12 +1,15 @@
 import time
-from fastapi import APIRouter, HTTPException, Form, Depends, Query
+import json
+from fastapi import APIRouter, HTTPException, Form, Depends, Query, Request, Body
 from fastapi.responses import JSONResponse, HTMLResponse
 from typing import Dict, Any, Optional, List
+from pydantic import BaseModel
 import logging
 import re
 import random
 
 from ..order_book import order_book
+from ..utils import get_current_trader_id
 
 # Configure logging
 logger = logging.getLogger("oes.api.orders")
@@ -49,27 +52,32 @@ SAMPLE_ORDERS = {
             {"id": "ord-o-2", "symbol": "SPY 450 Put", "type": "sell", "quantity": 5, "price": 2.45, "status": "open", "time": int(time.time()) - 240}
         ],
         "filled": [
-            {"id": "ord-o-3", "symbol": "MSFT 420 Call", "type": "buy", "quantity": 3, "price": 5.15, "status": "filled", "fill_price": 5.10, "time": int(time.time()) - 5400},
-            {"id": "ord-o-4", "symbol": "QQQ 400 Put", "type": "sell", "quantity": 8, "price": 3.75, "status": "filled", "fill_price": 3.80, "time": int(time.time()) - 10200}
+            {"id": "ord-o-3", "symbol": "MSFT 420 Call", "type": "buy", "quantity": 7, "price": 4.50, "status": "filled", "fill_price": 4.45, "time": int(time.time()) - 5400},
+            {"id": "ord-o-4", "symbol": "QQQ 390 Put", "type": "sell", "quantity": 3, "price": 3.25, "status": "filled", "fill_price": 3.30, "time": int(time.time()) - 10200}
         ],
         "cancelled": [
-            {"id": "ord-o-5", "symbol": "TSLA 180 Call", "type": "buy", "quantity": 2, "price": 4.20, "status": "cancelled", "time": int(time.time()) - 14400}
+            {"id": "ord-o-5", "symbol": "TSLA 200 Call", "type": "buy", "quantity": 5, "price": 5.75, "status": "cancelled", "time": int(time.time()) - 14400}
         ]
     },
     "crypto": {
         "open": [
-            {"id": "ord-c-1", "symbol": "BTC/USD", "type": "buy", "quantity": 0.25, "price": 61500.00, "status": "open", "time": int(time.time()) - 210},
-            {"id": "ord-c-2", "symbol": "ETH/USD", "type": "sell", "quantity": 1.5, "price": 3500.00, "status": "open", "time": int(time.time()) - 270}
+            {"id": "ord-c-1", "symbol": "BTC/USD", "type": "buy", "quantity": 0.5, "price": 62300.00, "status": "open", "time": int(time.time()) - 300},
+            {"id": "ord-c-2", "symbol": "ETH/USD", "type": "sell", "quantity": 2.5, "price": 3450.00, "status": "open", "time": int(time.time()) - 360}
         ],
         "filled": [
-            {"id": "ord-c-3", "symbol": "SOL/USD", "type": "buy", "quantity": 10, "price": 120.50, "status": "filled", "fill_price": 120.25, "time": int(time.time()) - 6000},
-            {"id": "ord-c-4", "symbol": "XRP/USD", "type": "sell", "quantity": 1000, "price": 0.60, "status": "filled", "fill_price": 0.595, "time": int(time.time()) - 11400}
+            {"id": "ord-c-3", "symbol": "BTC/USD", "type": "buy", "quantity": 0.25, "price": 61950.00, "status": "filled", "fill_price": 61925.00, "time": int(time.time()) - 7200},
+            {"id": "ord-c-4", "symbol": "SOL/USD", "type": "sell", "quantity": 20, "price": 124.50, "status": "filled", "fill_price": 124.75, "time": int(time.time()) - 14400}
         ],
         "cancelled": [
-            {"id": "ord-c-5", "symbol": "DOGE/USD", "type": "buy", "quantity": 2000, "price": 0.125, "status": "cancelled", "time": int(time.time()) - 16200}
+            {"id": "ord-c-5", "symbol": "XRP/USD", "type": "buy", "quantity": 1000, "price": 0.58, "status": "cancelled", "time": int(time.time()) - 21600}
         ]
     }
 }
+
+# Pydantic model for order edit
+class OrderEdit(BaseModel):
+    price: Optional[float] = None
+    quantity: Optional[float] = None
 
 @router.post("/api/orders")
 async def create_order(
@@ -79,496 +87,383 @@ async def create_order(
     quantity: float = Form(...),
     order_type: str = Form("limit"),
     tif: str = Form("day"),
-    instrument: str = Form("Stocks"),
+    asset_type: str = Form("stocks"),
     internal: bool = Form(False)
 ):
     """
-    Submit a new order to the system.
-
-    Required fields:
-    - type: "buy" or "sell"
-    - symbol: Asset symbol
-    - price: Price per unit
-    - quantity: Amount to buy/sell
+    Create a new order.
     
-    Optional fields:
-    - order_type: "limit" or "market"
-    - tif: Time in force ("day", "gtc", "ioc", "fok")
-    - instrument: Instrument type ("Stocks", "Futures", "Options", "Crypto")
-    - internal: Whether to route to dark pool (internal matching)
+    Parameters:
+    - type: 'buy' or 'sell'
+    - symbol: Asset symbol (e.g., 'AAPL')
+    - price: Price per unit
+    - quantity: Amount to trade
+    - order_type: 'market' or 'limit'
+    - tif: Time in force ('day', 'gtc', 'ioc', 'fok')
+    - asset_type: Asset type ('stocks', 'futures', 'options', 'crypto')
+    - internal: Whether to route to internal book (dark pool)
     """
     try:
-        # Start latency measurement
-        start_time = time.time() * 1000  # Convert to milliseconds
+        logger.info(f"Creating new {type} order for {quantity} {symbol} @ {price}")
         
-        # Log the incoming order
-        logger.info(f"Received order: {type} {quantity} {symbol} @ {price} (internal={internal})")
-
-        # Define the required fields for an order
-        required_fields = ["type", "symbol", "price", "quantity"]
-        
-        # Check if all required fields are present in the order
-        for field in required_fields:
-            if field not in {"type", "symbol", "price", "quantity"}:
-                logger.warning(f"Missing required field: {field}")
-                # Raise an HTTPException with a 400 status code for missing fields
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Missing required field: {field}"
-                )
-
-        # Validate the 'price' field
-        try:
-            price = float(price)
-        except (ValueError, TypeError) as e:
-            logger.warning(f"Invalid price: {price} - {e}")
-            # Raise an HTTPException with a 400 status code for invalid price
-            raise HTTPException(
-                status_code=400,
-                detail=f"Invalid price value: {price}. Must be a number."
-            )
-
-        # Validate the 'quantity' field
-        try:
-            quantity = float(quantity)
-        except (ValueError, TypeError) as e:
-            logger.warning(f"Invalid quantity: {quantity} - {e}")
-            # Raise an HTTPException with a 400 status code for invalid quantity
-            raise HTTPException(
-                status_code=400,
-                detail=f"Invalid quantity value: {quantity}. Must be a number."
-            )
-
-        # Validate the 'type' field
-        if type.lower() not in ["buy", "sell"]:
-            logger.warning(f"Invalid order type: {type}")
-            # Raise an HTTPException with a 400 status code for invalid order type
-            raise HTTPException(
-                status_code=400,
-                detail=f"Invalid order type: {type}. Must be 'buy' or 'sell'."
-            )
-
-        # Create order object with all fields
-        order = {
+        # Create order data
+        order_data = {
             "type": type,
             "symbol": symbol,
             "price": price,
             "quantity": quantity,
             "order_type": order_type,
             "tif": tif,
-            "instrument": instrument,
-            "internal": internal
+            "asset_type": asset_type,
+            "internal": internal,
+            "timestamp": time.time()
         }
         
-        # Submit the order to the order book for processing
-        result = await order_book.submit_order(order)
+        # Submit to order book
+        order = await order_book.submit_order(order_data)
         
-        # End latency measurement
-        end_time = time.time() * 1000  # Convert to milliseconds
-        latency = round(end_time - start_time)
-        
-        # Add latency to the result
-        result["latency"] = latency
-        
-        # Record latency in Redis for tracking
-        try:
-            order_book.redis.lpush("latency_measurements", latency)
-            order_book.redis.ltrim("latency_measurements", 0, 49)  # Keep last 50 measurements
-        except Exception as e:
-            logger.warning(f"Error saving latency measurement: {e}")
-
-        # Check if the order was rejected
-        if result.get("status") == "rejected":
-            logger.warning(f"Order rejected: {result.get('reason')}")
-            # Return a JSON response with a 400 status code and rejection reason
+        if order.get("status") == "rejected":
+            logger.warning(f"Order rejected: {order.get('reject_reason')}")
             return JSONResponse(
-                status_code=400,
+                status_code=400, 
                 content={
-                    "status": "rejected",
-                    "reason": result.get("reason", "Order was not accepted"),
-                    "latency": latency
-                },
-                headers={"Content-Type": "application/json"}
+                    "success": False, 
+                    "message": f"Order rejected: {order.get('reject_reason')}",
+                    "order": order
+                }
             )
-
-        # Log successful order
-        logger.info(f"Order accepted: {result} (latency: {latency}ms)")
-        # Return the successful order result
+        
+        logger.info(f"Order accepted: {order.get('id')}")
+        
+        # Return success response
         return JSONResponse(
-            content=result,
-            headers={"Content-Type": "application/json"}
+            status_code=201,
+            content={
+                "success": True,
+                "message": f"Order created successfully",
+                "order": order
+            }
         )
-
-    except HTTPException as http_exc:
-        # Re-raise the HTTPException to be handled by FastAPI
-        raise
     except Exception as e:
-        # Log the unexpected error
-        logger.error(f"Unexpected error in create_order: {e}", exc_info=True)
-        # Return a JSON response with a 500 status code for server errors
+        logger.error(f"Error creating order: {e}", exc_info=True)
         return JSONResponse(
             status_code=500,
-            content={"status": "error", "message": f"Server error: {str(e)}"},
-            headers={"Content-Type": "application/json"}
+            content={"success": False, "message": f"Internal server error: {str(e)}"}
         )
 
-@router.get("/api/orders/open", operation_id="get_open_orders")
-async def get_open_orders():
-    """Get all open orders for rendering in the UI."""
+@router.get("/api/orders/open")
+async def get_open_orders(
+    asset_type: Optional[str] = None,
+    internal_only: bool = False,
+    trader_id: Optional[str] = None
+):
+    """
+    Get open orders with optional filtering.
+    
+    Parameters:
+    - asset_type: Optional asset type filter
+    - internal_only: Whether to return only internal orders
+    - trader_id: Optional trader ID filter
+    """
     try:
-        print("[API] Fetching open orders")
-        orders = order_book.get_orders_by_status("open")
-        print(f"[API] Found {len(orders)} open orders")
+        logger.info(f"Fetching open orders (asset_type={asset_type}, internal_only={internal_only})")
         
-        # Return a JSON response instead of HTML
-        order_data = []
-        for order in orders:
-            # Format timestamp
-            timestamp = time.strftime(
-                "%H:%M:%S", 
-                time.localtime(float(order.get("timestamp", 0)))
-            )
-            
-            # Create simplified order data
-            simplified_order = {
-                "symbol": order.get("symbol", ""),
-                "price": float(order.get("price", 0)),
-                "quantity": float(order.get("quantity", 0)),
-                "type": order.get("type", ""),
-                # Full order details for modal display
-                "details": {
-                    "id": order.get("order_id", ""),
-                    "symbol": order.get("symbol", ""),
-                    "type": order.get("type", "").upper(),
-                    "order_type": order.get("order_type", "limit").upper(),
-                    "price": float(order.get("price", 0)),
-                    "quantity": float(order.get("quantity", 0)),
-                    "time": timestamp,
-                    "status": "OPEN",
-                    "internal": order.get("internal", False)
-                }
-            }
-            order_data.append(simplified_order)
-            
-        if not order_data:
-            print("[API] No open orders found")
-            return JSONResponse(content={"orders": []})
+        # Get open orders from order book
+        orders = order_book.get_orders_by_status("open", internal_only=internal_only, trader_id=trader_id)
         
-        return JSONResponse(content={"orders": order_data})
+        # Filter by asset type if provided
+        if asset_type:
+            orders = [order for order in orders if order.get("asset_type") == asset_type]
         
+        logger.info(f"Found {len(orders)} open orders")
+        
+        return orders
     except Exception as e:
         logger.error(f"Error fetching open orders: {e}", exc_info=True)
-        return JSONResponse(
-            status_code=500,
-            content={"error": "Error loading orders"}
-        )
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
-@router.get("/api/orders/filled", operation_id="get_filled_orders")
-async def get_filled_orders():
-    """Get all filled orders for rendering in the UI."""
+@router.get("/api/orders/filled")
+async def get_filled_orders(
+    asset_type: Optional[str] = None,
+    internal_only: bool = False,
+    trader_id: Optional[str] = None
+):
+    """
+    Get filled orders with optional filtering.
+    
+    Parameters:
+    - asset_type: Optional asset type filter
+    - internal_only: Whether to return only internal orders
+    - trader_id: Optional trader ID filter
+    """
     try:
-        logger.info("Fetching filled orders")
-        orders = order_book.get_orders_by_status("filled")
+        logger.info(f"Fetching filled orders (asset_type={asset_type}, internal_only={internal_only})")
+        
+        # Get filled orders from order book
+        orders = order_book.get_orders_by_status("filled", internal_only=internal_only, trader_id=trader_id)
+        
+        # Filter by asset type if provided
+        if asset_type:
+            orders = [order for order in orders if order.get("asset_type") == asset_type]
+        
         logger.info(f"Found {len(orders)} filled orders")
         
-        # Return a JSON response instead of HTML
-        order_data = []
-        for order in orders:
-            # Format timestamp
-            fill_time = time.strftime(
-                "%H:%M:%S", 
-                time.localtime(float(order.get("fill_time", 0)))
-            )
-            
-            # Create simplified order data
-            simplified_order = {
-                "symbol": order.get("symbol", ""),
-                "price": float(order.get("fill_price", 0)),
-                "quantity": float(order.get("quantity", 0)),
-                "type": order.get("type", ""),
-                # Full order details for modal display
-                "details": {
-                    "id": order.get("order_id", ""),
-                    "symbol": order.get("symbol", ""),
-                    "type": order.get("type", "").upper(),
-                    "order_type": order.get("order_type", "limit").upper(),
-                    "price": float(order.get("fill_price", 0)),
-                    "quantity": float(order.get("quantity", 0)),
-                    "time": fill_time,
-                    "status": "FILLED",
-                    "internal": order.get("internal", False)
-                }
-            }
-            order_data.append(simplified_order)
-            
-        if not order_data:
-            logger.info("No filled orders found")
-            return JSONResponse(content={"orders": []})
-        
-        logger.info(f"Returning {len(order_data)} filled orders")
-        return JSONResponse(content={"orders": order_data})
-        
+        return orders
     except Exception as e:
         logger.error(f"Error fetching filled orders: {e}", exc_info=True)
-        return JSONResponse(
-            status_code=500,
-            content={"error": "Error loading orders"}
-        )
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
-@router.get("/api/orders/cancelled", operation_id="get_cancelled_orders")
-async def get_cancelled_orders():
-    """Get all cancelled orders for rendering in the UI."""
+@router.get("/api/orders/cancelled")
+async def get_cancelled_orders(
+    asset_type: Optional[str] = None,
+    internal_only: bool = False,
+    trader_id: Optional[str] = None
+):
+    """
+    Get cancelled orders with optional filtering.
+    
+    Parameters:
+    - asset_type: Optional asset type filter
+    - internal_only: Whether to return only internal orders
+    - trader_id: Optional trader ID filter
+    """
     try:
-        logger.info("Fetching cancelled orders")
-        orders = order_book.get_orders_by_status("cancelled")
+        logger.info(f"Fetching cancelled orders (asset_type={asset_type}, internal_only={internal_only})")
+        
+        # Get cancelled orders from order book
+        orders = order_book.get_orders_by_status("cancelled", internal_only=internal_only, trader_id=trader_id)
+        
+        # Filter by asset type if provided
+        if asset_type:
+            orders = [order for order in orders if order.get("asset_type") == asset_type]
+        
         logger.info(f"Found {len(orders)} cancelled orders")
         
-        # Return a JSON response instead of HTML
-        order_data = []
-        for order in orders:
-            # Format timestamp
-            cancel_time = time.strftime(
-                "%H:%M:%S", 
-                time.localtime(float(order.get("cancel_time", 0)))
-            )
-            
-            # Create simplified order data
-            simplified_order = {
-                "symbol": order.get("symbol", ""),
-                "price": float(order.get("price", 0)),
-                "quantity": float(order.get("quantity", 0)),
-                "type": order.get("type", ""),
-                # Full order details for modal display
-                "details": {
-                    "id": order.get("order_id", ""),
-                    "symbol": order.get("symbol", ""),
-                    "type": order.get("type", "").upper(),
-                    "order_type": order.get("order_type", "limit").upper(),
-                    "price": float(order.get("price", 0)),
-                    "quantity": float(order.get("quantity", 0)),
-                    "time": cancel_time,
-                    "status": "CANCELLED",
-                    "internal": order.get("internal", False)
-                }
-            }
-            order_data.append(simplified_order)
-            
-        if not order_data:
-            logger.info("No cancelled orders found")
-            return JSONResponse(content={"orders": []})
-        
-        logger.info(f"Returning {len(order_data)} cancelled orders")
-        return JSONResponse(content={"orders": order_data})
-        
+        return orders
     except Exception as e:
         logger.error(f"Error fetching cancelled orders: {e}", exc_info=True)
-        return JSONResponse(
-            status_code=500,
-            content={"error": "Error loading orders"}
-        )
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
-@router.get("/api/orders/{order_id}", operation_id="get_order_by_id")
-async def get_order(order_id: str):
-    """Get details of a specific order."""
+@router.get("/api/orders/{order_id}")
+async def get_order_by_id(order_id: str):
+    """
+    Get a specific order by ID.
     
-    # Check if we're trying to access a special endpoint
-    if order_id in ["open", "filled", "cancelled"]:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Invalid order ID: {order_id} is a reserved keyword"
-        )
-            
+    Parameters:
+    - order_id: The ID of the order to retrieve
+    """
     try:
-        order = order_book.get_order(order_id)
+        logger.info(f"Fetching order details for ID: {order_id}")
+        
+        # Get order details from order book
+        order = order_book.get_order_details(order_id)
         
         if not order:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Order {order_id} not found"
-            )
-            
+            logger.warning(f"Order not found: {order_id}")
+            raise HTTPException(status_code=404, detail=f"Order {order_id} not found")
+        
+        logger.info(f"Found order: {order_id}")
+        
         return order
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error getting order {order_id}: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Server error: {str(e)}")
+        logger.error(f"Error fetching order details: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
-@router.delete("/api/orders/{order_id}")
-async def cancel_order(order_id: str):
-    """Cancel an existing order."""
+@router.post("/api/orders/{order_id}/edit")
+async def edit_order(order_id: str, edit_data: OrderEdit):
+    """
+    Edit an existing order.
+    
+    Parameters:
+    - order_id: The ID of the order to edit
+    - edit_data: Object containing fields to update (price, quantity)
+    """
     try:
-        success = order_book.cancel_order(order_id)
+        logger.info(f"Editing order {order_id}: {edit_data}")
         
-        if not success:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Order {order_id} not found or already filled"
-            )
-            
-        return {"status": "cancelled", "order_id": order_id}
+        # Make sure we have at least one field to update
+        if edit_data.price is None and edit_data.quantity is None:
+            raise HTTPException(status_code=400, detail="No fields to update provided")
+        
+        # Prepare update data
+        update = {}
+        if edit_data.price is not None:
+            update["price"] = float(edit_data.price)
+        if edit_data.quantity is not None:
+            update["quantity"] = float(edit_data.quantity)
+        
+        # Submit edit to order book
+        updated_order = await order_book.edit_order(order_id, update)
+        
+        if not updated_order:
+            logger.warning(f"Failed to edit order {order_id}: Order not found or not editable")
+            raise HTTPException(status_code=404, detail=f"Order {order_id} not found or not editable")
+        
+        logger.info(f"Order {order_id} edited successfully")
+        
+        return {
+            "success": True,
+            "message": "Order updated successfully",
+            "order": updated_order
+        }
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error cancelling order {order_id}: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Server error: {str(e)}")
+        logger.error(f"Error editing order: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
-# New endpoints for asset-specific order retrieval
+@router.post("/api/orders/{order_id}/cancel")
+async def cancel_order(order_id: str):
+    """
+    Cancel an open order.
+    
+    Parameters:
+    - order_id: The ID of the order to cancel
+    """
+    try:
+        logger.info(f"Cancelling order: {order_id}")
+        
+        # Submit cancel to order book
+        success = order_book.cancel_order(order_id)
+        
+        if not success:
+            logger.warning(f"Failed to cancel order {order_id}: Order not found or already cancelled")
+            raise HTTPException(status_code=404, detail=f"Order {order_id} not found or already cancelled")
+        
+        logger.info(f"Order {order_id} cancelled successfully")
+        
+        return {
+            "success": True,
+            "message": "Order cancelled successfully",
+            "order_id": order_id
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error cancelling order: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
+@router.get("/api/orders/recent")
+async def get_recent_orders():
+    """Get recent orders for display on dashboard."""
+    try:
+        # Generate some recent demo orders
+        recent_orders = []
+        
+        for asset_type, orders in SAMPLE_ORDERS.items():
+            for status, status_orders in orders.items():
+                for order in status_orders:
+                    # Clone the order and add some additional attributes
+                    recent_order = order.copy()
+                    recent_order["asset_type"] = asset_type
+                    recent_orders.append(recent_order)
+        
+        # Sort by time (newest first)
+        recent_orders.sort(key=lambda x: x.get("time", 0), reverse=True)
+        
+        # Take only the 10 most recent
+        recent_orders = recent_orders[:10]
+        
+        # Format orders for display
+        formatted_orders = []
+        for order in recent_orders:
+            formatted_order = {}
+            formatted_order["id"] = order.get("id", "")
+            formatted_order["asset_type"] = order.get("asset_type", "").capitalize()
+            formatted_order["symbol"] = order.get("symbol", "")
+            formatted_order["type"] = order.get("type", "").upper()
+            formatted_order["price"] = f"${order.get('price', 0.00):.2f}"
+            formatted_order["quantity"] = order.get("quantity", 0)
+            formatted_order["status"] = order.get("status", "").capitalize()
+            
+            # Format time as relative time
+            seconds_ago = int(time.time()) - order.get("time", 0)
+            if seconds_ago < 60:
+                formatted_order["time"] = f"{seconds_ago}s ago"
+            elif seconds_ago < 3600:
+                formatted_order["time"] = f"{seconds_ago // 60}m ago"
+            else:
+                formatted_order["time"] = f"{seconds_ago // 3600}h ago"
+            
+            formatted_orders.append(formatted_order)
+        
+        # Generate HTML rows for HTMX response
+        html_rows = ""
+        for order in formatted_orders:
+            status_class = ""
+            if order["status"] == "Filled":
+                status_class = "positive"
+            elif order["status"] == "Cancelled":
+                status_class = "negative"
+            
+            html_rows += f"""
+            <tr>
+                <td>{order["id"]}</td>
+                <td>{order["asset_type"]}</td>
+                <td>{order["symbol"]}</td>
+                <td>{order["type"]}</td>
+                <td>{order["price"]}</td>
+                <td>{order["quantity"]}</td>
+                <td class="{status_class}">{order["status"]}</td>
+                <td>{order["time"]}</td>
+            </tr>
+            """
+        
+        return HTMLResponse(content=html_rows)
+    except Exception as e:
+        logger.error(f"Error generating recent orders: {e}", exc_info=True)
+        return HTMLResponse(content="<tr><td colspan='8'>Error loading recent orders</td></tr>")
+
+# Legacy endpoints for compatibility
 
 @router.get("/api/orders/{asset_type}/open")
 async def get_open_orders_by_asset(asset_type: str):
-    """
-    Get all open orders for a specific asset type.
-    
-    Args:
-        asset_type: One of "stocks", "futures", "options", or "crypto"
-    
-    Returns:
-        HTML formatted table rows for open orders of the specified asset type.
-    """
-    if asset_type not in SAMPLE_ORDERS:
-        return f"<tr><td colspan='6'>No {asset_type} orders found</td></tr>"
-    
-    orders = SAMPLE_ORDERS[asset_type]["open"]
-    
-    # Create HTML response for HTMX
-    html_rows = ""
-    for order in orders:
-        # Format the timestamp
-        timestamp = time.strftime("%H:%M:%S", time.localtime(order["time"]))
-        
-        # Format the order row
-        html_rows += f"""
-        <tr>
-            <td>{order["id"]}</td>
-            <td>{order["symbol"]}</td>
-            <td class="{'positive' if order['type'] == 'buy' else 'negative'}">{order["type"].upper()}</td>
-            <td>{order["quantity"]}</td>
-            <td>${order["price"]}</td>
-            <td>{timestamp}</td>
-            <td>
-                <button class="btn-cancel-order" data-order-id="{order["id"]}">Cancel</button>
-            </td>
-        </tr>
-        """
-    
-    return html_rows
+    """Legacy endpoint for getting open orders by asset type."""
+    return await get_open_orders(asset_type=asset_type)
 
 @router.get("/api/orders/{asset_type}/filled")
 async def get_filled_orders_by_asset(asset_type: str):
-    """
-    Get all filled orders for a specific asset type.
-    
-    Args:
-        asset_type: One of "stocks", "futures", "options", or "crypto"
-    
-    Returns:
-        HTML formatted table rows for filled orders of the specified asset type.
-    """
-    if asset_type not in SAMPLE_ORDERS:
-        return f"<tr><td colspan='7'>No {asset_type} orders found</td></tr>"
-    
-    orders = SAMPLE_ORDERS[asset_type]["filled"]
-    
-    # Create HTML response for HTMX
-    html_rows = ""
-    for order in orders:
-        # Format the timestamp
-        timestamp = time.strftime("%H:%M:%S", time.localtime(order["time"]))
-        
-        # Format the order row
-        html_rows += f"""
-        <tr>
-            <td>{order["id"]}</td>
-            <td>{order["symbol"]}</td>
-            <td class="{'positive' if order['type'] == 'buy' else 'negative'}">{order["type"].upper()}</td>
-            <td>{order["quantity"]}</td>
-            <td>${order["price"]}</td>
-            <td>${order["fill_price"]}</td>
-            <td>{timestamp}</td>
-        </tr>
-        """
-    
-    return html_rows
+    """Legacy endpoint for getting filled orders by asset type."""
+    return await get_filled_orders(asset_type=asset_type)
 
 @router.get("/api/orders/{asset_type}/cancelled")
 async def get_cancelled_orders_by_asset(asset_type: str):
-    """
-    Get all cancelled orders for a specific asset type.
-    
-    Args:
-        asset_type: One of "stocks", "futures", "options", or "crypto"
-    
-    Returns:
-        HTML formatted table rows for cancelled orders of the specified asset type.
-    """
-    if asset_type not in SAMPLE_ORDERS:
-        return f"<tr><td colspan='6'>No {asset_type} orders found</td></tr>"
-    
-    orders = SAMPLE_ORDERS[asset_type]["cancelled"]
-    
-    # Create HTML response for HTMX
-    html_rows = ""
-    for order in orders:
-        # Format the timestamp
-        timestamp = time.strftime("%H:%M:%S", time.localtime(order["time"]))
-        
-        # Format the order row
-        html_rows += f"""
-        <tr>
-            <td>{order["id"]}</td>
-            <td>{order["symbol"]}</td>
-            <td class="{'positive' if order['type'] == 'buy' else 'negative'}">{order["type"].upper()}</td>
-            <td>{order["quantity"]}</td>
-            <td>${order["price"]}</td>
-            <td>{timestamp}</td>
-        </tr>
-        """
-    
-    return html_rows
+    """Legacy endpoint for getting cancelled orders by asset type."""
+    return await get_cancelled_orders(asset_type=asset_type)
 
-# Keep the existing implementation for the general "recent orders" endpoint
-@router.get("/api/orders/recent")
-async def get_recent_orders():
+@router.get("/api/orders/my")
+async def get_my_orders(
+    status: str = Query("open", description="Order status: open, filled, or cancelled"),
+    symbol: Optional[str] = None,  # Add symbol parameter for filtering
+    trader_id: str = Depends(get_current_trader_id)
+):
     """
-    Get the most recent orders across all asset types.
+    Get orders belonging to the current trader.
     
-    Returns:
-        HTML formatted table rows for the most recent orders.
+    Parameters:
+    - status: Order status (open, filled, cancelled)
+    - symbol: Optional symbol to filter orders
     """
-    # Collect a few recent orders across all asset types
-    recent_orders = []
-    
-    for asset_type in SAMPLE_ORDERS:
-        for status in ["open", "filled", "cancelled"]:
-            orders = SAMPLE_ORDERS[asset_type][status]
-            for order in orders:
-                order_copy = order.copy()
-                order_copy["asset_type"] = asset_type
-                recent_orders.append(order_copy)
-    
-    # Sort by time (most recent first) and take top 5
-    recent_orders.sort(key=lambda x: x["time"], reverse=True)
-    recent_orders = recent_orders[:5]
-    
-    # Create HTML response for HTMX
-    html_rows = ""
-    for order in recent_orders:
-        # Format the timestamp
-        timestamp = time.strftime("%H:%M:%S", time.localtime(order["time"]))
+    try:
+        logger.info(f"Fetching {status} orders for trader {trader_id}" + (f" and symbol {symbol}" if symbol else ""))
         
-        # Format the order row
-        html_rows += f"""
-        <tr>
-            <td>{order["id"]}</td>
-            <td>{order["asset_type"].capitalize()}</td>
-            <td>{order["symbol"]}</td>
-            <td class="{'positive' if order['type'] == 'buy' else 'negative'}">{order["type"].upper()}</td>
-            <td>${order["price"]}</td>
-            <td>{order["quantity"]}</td>
-            <td>{order["status"].capitalize()}</td>
-            <td>{timestamp}</td>
-        </tr>
-        """
-    
-    return html_rows
+        if status not in ["open", "filled", "cancelled"]:
+            raise HTTPException(status_code=400, detail="Status must be 'open', 'filled', or 'cancelled'")
+        
+        # Get orders for this trader
+        orders = order_book.get_orders_by_status(
+            status=status,
+            internal_only=False,  # Get both internal and external orders
+            trader_id=trader_id,  # Filter by trader ID
+            symbol=symbol  # Filter by symbol if provided
+        )
+        
+        logger.info(f"Found {len(orders)} {status} orders for trader {trader_id}")
+        return {"orders": orders}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error fetching trader orders: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))

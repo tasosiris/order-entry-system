@@ -90,6 +90,18 @@ async def get_order_by_id(order_id: str):
         if not order:
             logger.warning(f"Order not found: {order_id}")
             raise HTTPException(status_code=404, detail="Order not found")
+        
+        # Ensure internal_match field is properly set
+        if 'internal_match' not in order:
+            # Check if internal field exists and use that value
+            if 'internal' in order:
+                order['internal_match'] = str(order['internal'])
+            else:
+                # Default to False if neither field exists
+                order['internal_match'] = 'False'
+        
+        # Ensure internal_match is a string for consistency
+        order['internal_match'] = str(order['internal_match'])
             
         return order
     except HTTPException:
@@ -191,12 +203,27 @@ async def edit_order(order_id: str, edit_data: OrderEdit):
                 detail=f"Cannot edit order with status '{order.get('status')}'"
             )
         
+        # Ensure internal_match field is properly set
+        if 'internal_match' not in order and 'internal' in order:
+            order['internal_match'] = str(order['internal'])
+        
         # Prepare update data
         update_data = {}
         if edit_data.price is not None:
             update_data['price'] = float(edit_data.price)
         if edit_data.quantity is not None:
             update_data['quantity'] = int(edit_data.quantity)
+        
+        # Always include the account_id
+        update_data['account_id'] = order.get('account_id')
+        
+        # Preserve the internal_match field
+        if 'internal_match' in order:
+            update_data['internal_match'] = order['internal_match']
+        
+        # Preserve the symbol field
+        if 'symbol' in order:
+            update_data['symbol'] = order['symbol']
         
         # Apply the update
         updated_order = await matching_engine.edit_order(order_id, update_data)
@@ -206,6 +233,13 @@ async def edit_order(order_id: str, edit_data: OrderEdit):
                 status_code=500, 
                 detail=f"Failed to update order {order_id}"
             )
+        
+        # Ensure internal_match is in the updated order too
+        if 'internal_match' not in updated_order and 'internal_match' in order:
+            updated_order['internal_match'] = order['internal_match']
+        
+        # Log successful update
+        logger.info(f"Order {order_id} updated successfully: price={updated_order.get('price')}, quantity={updated_order.get('quantity')}")
         
         return {
             "success": True,
@@ -288,4 +322,49 @@ async def cancel_order(order_id: str, account_id: Optional[str] = None):
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to cancel order: {str(e)}",
+        )
+
+@orders_router.post("/{order_id}/confirm-edit", response_model=Dict[str, Any])
+async def confirm_order_edit(order_id: str):
+    """
+    Confirm the current values of an order after editing.
+    
+    Args:
+        order_id: The ID of the order to check
+        
+    Returns:
+        Order data with proper numeric data types
+    """
+    try:
+        # Get the current order
+        order = matching_engine.get_order(order_id)
+        if not order:
+            raise HTTPException(status_code=404, detail=f"Order {order_id} not found")
+        
+        # Convert string values to appropriate numeric types
+        if order.get('price') and isinstance(order['price'], str):
+            order['price'] = float(order['price'])
+            
+        if order.get('quantity') and isinstance(order['quantity'], str):
+            order['quantity'] = int(float(order['quantity']))
+            
+        if order.get('filled_quantity') and isinstance(order['filled_quantity'], str):
+            order['filled_quantity'] = int(float(order['filled_quantity']))
+        
+        # Log the actual values
+        logger.info(f"Confirmed order {order_id} values: price={order['price']}, quantity={order['quantity']}")
+        
+        return {
+            "success": True,
+            "message": "Order values confirmed",
+            "order": order
+        }
+    except HTTPException:
+        # Re-raise HTTP exceptions
+        raise
+    except Exception as e:
+        logger.error(f"Error confirming order: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Error confirming order: {str(e)}"
         ) 

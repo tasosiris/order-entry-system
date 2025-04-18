@@ -11,6 +11,7 @@ Key Features:
 - Redis-based implementation for performance
 - Comprehensive filtering and depth control
 - Risk management integration
+- Multiple trading accounts support
 
 The order book uses negative prices for buy orders to achieve descending order,
 while sell orders use positive prices for ascending order. This enables efficient
@@ -23,20 +24,18 @@ import time
 import json
 import asyncio
 from typing import Dict, Any, List, Optional, Tuple, Literal
+from datetime import datetime
+import logging
+import random
 
 # Application-specific imports
-from .redis_client import (
-    get_redis_client, 
-    match_orders, 
-    BUY_ORDERS_KEY, 
-    SELL_ORDERS_KEY, 
-    TRADES_KEY,
-    INTERNAL_BUY_ORDERS_KEY, 
-    INTERNAL_SELL_ORDERS_KEY,
-    INTERNAL_TRADES_KEY,
-    DARK_POOL_ENABLED
-)
-from .risk_management import risk_manager
+from .redis_client import redis_client, BUY_ORDERS_KEY, SELL_ORDERS_KEY, TRADES_KEY, INTERNAL_BUY_ORDERS_KEY, INTERNAL_SELL_ORDERS_KEY, INTERNAL_TRADES_KEY, DARK_POOL_ENABLED
+from app.risk_management import risk_manager
+from app.accounts import account_manager
+from app.matching_engine import matching_engine
+
+# Configure logging
+logger = logging.getLogger("oes.orderbook")
 
 class OrderBook:
     """
@@ -48,442 +47,721 @@ class OrderBook:
     - Dark pool support
     - Order book state management
     - Trade execution tracking
-    
-    The implementation uses Redis sorted sets for efficient order storage and retrieval:
-    - Buy orders use negative prices for descending order (highest first)
-    - Sell orders use positive prices for ascending order (lowest first)
-    - Timestamps are incorporated into scores for precise ordering
-    
-    Attributes:
-        redis: Redis client instance for database operations
+    - Multiple trading account support
     """
     
     def __init__(self):
-        """Initialize the order book with a Redis client connection."""
-        self.redis = get_redis_client()
+        """Initialize the order book with Redis connection."""
+        self.redis = redis_client
+        self.account_mgr = account_manager
+        self.match_engine = matching_engine
         
+        # Seed historical data if needed
+        try:
+            seed_historical_data()
+            seed_internal_book()
+        except Exception as e:
+            print(f"Warning: Failed to seed order book data: {e}")
+    
     async def submit_order(self, order_data: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Submit an order to the order book and potentially match it.
-        
-        This method:
-        1. Validates the order against risk parameters
-        2. Assigns a unique ID if not present
-        3. Stores the order in Redis with a score based on price-time priority
-        4. Attempts to match the order against existing orders
+        Submit an order to the order book.
         
         Args:
-            order_data: Order information including:
-                - type: 'buy' or 'sell'
-                - symbol: Asset symbol (e.g., 'BTC-USD')
-                - price: Price per unit as a float
-                - quantity: Amount to buy/sell as a float
-                - internal: Whether to route to dark pool (optional)
-                
+            order_data: Dictionary with order details
+            
         Returns:
-            Dict with 'status' ('accepted' or 'rejected') and either:
-                - 'order_id': The ID of the accepted order
-                - 'reason': The reason for rejection
+            The submitted order data with additional fields
         """
-        # Validate the order using risk management rules
-        is_valid, reason = risk_manager.validate_order(order_data)
-        if not is_valid:
-            return {"status": "rejected", "reason": reason}
-        
-        # Assign a unique ID if not present
-        if "order_id" not in order_data:
-            order_data["order_id"] = str(uuid.uuid4())
+        # Generate a unique order ID if not provided
+        if 'id' not in order_data and 'order_id' not in order_data:
+            order_id = f"order-{uuid.uuid4()}"
+            order_data['id'] = order_id
+            order_data['order_id'] = order_id
+        elif 'id' in order_data and 'order_id' not in order_data:
+            order_data['order_id'] = order_data['id']
+        elif 'order_id' in order_data and 'id' not in order_data:
+            order_data['id'] = order_data['order_id']
             
-        # Add timestamp for order prioritization
-        order_data["timestamp"] = time.time()
-        
-        # Determine if this is a dark pool order (internal routing)
-        is_internal = order_data.get("internal", False)
-        
-        # Determine price score for sorted set
-        # For buy orders: use negative price for descending sort (higher bids first)
-        # For sell orders: use positive price for ascending sort (lower asks first)
-        order_type = order_data["type"].lower()
-        price = float(order_data["price"])
-        timestamp_fraction = order_data["timestamp"] % 1
-        
-        # Calculate score - includes tiny fraction of timestamp for tie-breaking
-        if order_type == "buy":
-            # Negate price for descending sort, add timestamp for tiebreaking
-            score = -1 * (price + (timestamp_fraction / 1000000))
-            orders_key = INTERNAL_BUY_ORDERS_KEY if is_internal else BUY_ORDERS_KEY
-        else:  # sell
-            # Keep price positive for ascending sort, add timestamp for tiebreaking
-            score = price + (timestamp_fraction / 1000000)
-            orders_key = INTERNAL_SELL_ORDERS_KEY if is_internal else SELL_ORDERS_KEY
+        # Set order timestamp
+        if 'timestamp' not in order_data:
+            order_data['timestamp'] = time.time()
             
-        # Prepare order for Redis storage
-        order_id = order_data["order_id"]
-        order_key = f"order:{order_id}"
-        
-        # Convert all values to strings for Redis storage
-        string_order = {k: str(v) for k, v in order_data.items()}
-        
-        try:
-            # Store order in Redis using a pipeline (atomic transaction)
-            pipeline = self.redis.pipeline()
-            pipeline.hmset(order_key, string_order)  # Store order details
-            pipeline.zadd(orders_key, {order_id: score})  # Add to sorted set
-            pipeline.execute()
+        # Set order status
+        if 'status' not in order_data:
+            order_data['status'] = 'open'
             
-            # Run the matching algorithm to find potential matches
-            await self.match_orders()
+        # Set filled_quantity to 0
+        if 'filled_quantity' not in order_data:
+            order_data['filled_quantity'] = '0'
             
-            return {"status": "accepted", "order_id": order_id}
-        except Exception as e:
-            # Log any Redis errors
-            print(f"Error storing order in Redis: {e}")
-            return {"status": "rejected", "reason": f"Database error: {str(e)}"}
+        # Set order creation time
+        if 'created_at' not in order_data:
+            order_data['created_at'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            
+        # For incoming orders from external systems or UI, let's handle using the matching engine
+        # This allows us to work directly with accounts
+        internal = order_data.get('internal', False)
+        
+        # If the order includes an account_id, we're using the matching engine directly
+        if 'account_id' in order_data:
+            # Use the matching engine for inter-account trades
+            return await self.match_engine.submit_order(order_data)
+        
+        # Check order with risk management system
+        is_approved, risk_reason = risk_manager.check_order(order_data)
+        
+        if not is_approved:
+            # Order rejected by risk management
+            order_data['status'] = 'rejected'
+            order_data['reject_reason'] = risk_reason
+            return order_data
+        
+        # Select appropriate order book (buy/sell, internal/external)
+        if order_data['type'].lower() == 'buy':
+            if internal:
+                orders_key = INTERNAL_BUY_ORDERS_KEY
+            else:
+                orders_key = BUY_ORDERS_KEY
+            
+            # For buy orders, store negative price for proper sorting
+            price_score = -float(order_data['price'])
+        else:  # sell order
+            if internal:
+                orders_key = INTERNAL_SELL_ORDERS_KEY
+            else:
+                orders_key = SELL_ORDERS_KEY
+            
+            # For sell orders, store positive price for proper sorting
+            price_score = float(order_data['price'])
+        
+        # Store the order in Redis sorted set
+        # We serialize the order data to JSON
+        self.redis.zadd(orders_key, {json.dumps(order_data): price_score})
+        
+        # Return the submitted order
+        return order_data
     
-    async def match_orders(self) -> List[Dict[str, Any]]:
+    async def edit_order(self, order_id: str, updated_data: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Execute the order matching algorithm using the Lua script.
-        Enhanced to support Dark Pool matching.
-        Returns a list of trades that were executed.
-        """
-        executed_trades = []
+        Edit an existing open order.
         
-        # Try to match orders up to 10 times or until no more matches are found
-        for _ in range(10):
-            # Execute the Lua script for atomic matching
-            # With dark pool keys included and dark pool flag passed as argument
-            result = match_orders(
-                keys=[
-                    BUY_ORDERS_KEY, 
-                    SELL_ORDERS_KEY, 
-                    TRADES_KEY,
-                    INTERNAL_BUY_ORDERS_KEY,
-                    INTERNAL_SELL_ORDERS_KEY,
-                    INTERNAL_TRADES_KEY
-                ],
-                args=[1 if DARK_POOL_ENABLED else 0]
-            )
-            
-            if not result:
-                break  # No more matches
-                
-            # Parse the result from Lua script
-            # Now includes dark_pool_flag at position 7
-            trade_id, buy_id, sell_id, price, quantity, remaining_buy, remaining_sell, dark_pool_flag = result
-            
-            # Get full trade details
-            trade = self.redis.hgetall(f"trade:{trade_id}")
-            
-            # Log the execution
-            risk_manager.log_execution(trade)
-            
-            executed_trades.append(trade)
-            
-            # Small delay to prevent CPU hogging
-            await asyncio.sleep(0)
-            
-        return executed_trades
+        Args:
+            order_id: ID of the order to edit
+            updated_data: Dictionary with updated field values
+        
+        Returns:
+            Updated order data or None if order not found
+        """
+        # First retrieve the existing order
+        existing_order = self.get_order(order_id)
+        
+        if not existing_order:
+            return None
+        
+        if existing_order['status'] != 'open':
+            # Can only edit open orders
+            return None
+        
+        # Determine which book this order is in - check for different formats of the field values
+        internal = False
+        
+        # First check if internal_match was provided in the update
+        if 'internal_match' in updated_data:
+            internal_match_value = str(updated_data['internal_match']).lower()
+            internal = internal_match_value in ['true', 'yes', 'y', '1']
+        # Otherwise check the existing order
+        elif 'internal_match' in existing_order:
+            internal_match_value = str(existing_order['internal_match']).lower()
+            internal = internal_match_value in ['true', 'yes', 'y', '1']
+        # Last resort: check the internal field
+        elif 'internal' in existing_order:
+            internal_value = str(existing_order['internal']).lower()
+            internal = internal_value in ['true', 'yes', 'y', '1']
+        
+        is_buy = existing_order['type'].lower() == 'buy'
+        
+        if is_buy:
+            old_key = INTERNAL_BUY_ORDERS_KEY if internal else BUY_ORDERS_KEY
+        else:
+            old_key = INTERNAL_SELL_ORDERS_KEY if internal else SELL_ORDERS_KEY
+        
+        # Remove the old order
+        self.redis.zrem(old_key, json.dumps(existing_order))
+        
+        # Update fields
+        allowed_fields = ['price', 'quantity']
+        for field in allowed_fields:
+            if field in updated_data:
+                existing_order[field] = updated_data[field]
+        
+        # Mark as edited
+        existing_order['edited'] = 'True'
+        existing_order['last_edit_time'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
+        # Ensure internal_match is set consistently as a string
+        existing_order['internal_match'] = str(internal)
+        if 'internal' in existing_order:
+            existing_order['internal'] = internal  # Keep internal field in sync
+        
+        # Re-insert with potentially new price
+        if is_buy:
+            # For buy orders, store negative price for proper sorting
+            price_score = -float(existing_order['price'])
+        else:
+            # For sell orders, store positive price for proper sorting
+            price_score = float(existing_order['price'])
+        
+        # Store the updated order
+        self.redis.zadd(old_key, {json.dumps(existing_order): price_score})
+        
+        # Return the updated order
+        return existing_order
+    
+    async def match_orders(self, include_internal=False):
+        """Match orders from the order books based on price-time priority."""
+        return await self.redis.match_orders(include_internal)
     
     def get_order_book(
         self, 
         depth: int = 10, 
         include_internal: bool = False,
         asset_type: Optional[str] = None,
-        symbol: Optional[str] = None
+        symbol: Optional[str] = None,
+        trader_id: Optional[str] = None
     ) -> Dict[str, List[Dict[str, Any]]]:
         """
         Get the current state of the order book.
         
         Args:
-            depth: How many levels to include
-            include_internal: Whether to include dark pool orders
-            asset_type: Filter by asset type (stocks, futures, options, crypto)
-            symbol: Filter by specific symbol
+            depth: Maximum number of price levels to return
+            include_internal: Whether to include internal orders
+            asset_type: Filter by asset type (stocks, options, etc.)
+            symbol: Filter by symbol
+            trader_id: Filter by trader ID
             
         Returns:
-            Dict with 'bids' and 'asks' lists
+            Dictionary with bids and asks lists
         """
-        # Get top buy orders (highest price first)
-        buy_orders = self.redis.zrange(BUY_ORDERS_KEY, 0, -1, withscores=True)
+        # Get the order book data from Redis
+        buy_orders = []
+        sell_orders = []
         
-        # Get top sell orders (lowest price first)
-        sell_orders = self.redis.zrange(SELL_ORDERS_KEY, 0, -1, withscores=True)
-        
-        # If requested, get internal dark pool orders too
-        if include_internal:
-            internal_buy_orders = self.redis.zrange(INTERNAL_BUY_ORDERS_KEY, 0, -1, withscores=True)
-            internal_sell_orders = self.redis.zrange(INTERNAL_SELL_ORDERS_KEY, 0, -1, withscores=True)
+        # Get external orders (if not filtering for internal only)
+        if not include_internal or include_internal == "both":
+            ext_buy_orders = self.redis.zrevrange(BUY_ORDERS_KEY, 0, -1, withscores=True)
+            ext_sell_orders = self.redis.zrange(SELL_ORDERS_KEY, 0, -1, withscores=True)
             
-            # Combine the orders, will sort by order later
-            buy_orders.extend(internal_buy_orders)
-            sell_orders.extend(internal_sell_orders)
-        
-        # Convert to full order objects and apply filters
-        bids = []
-        for order_id, _ in buy_orders:
-            order = self.redis.hgetall(f"order:{order_id}")
-            if order:
-                # Apply asset type filter
-                if asset_type and order.get("asset_type", "").lower() != asset_type.lower():
-                    continue
-                    
-                # Apply symbol filter
-                if symbol and order.get("symbol", "") != symbol:
-                    continue
-                    
-                # Flag internal orders for display purposes
-                if include_internal and order.get("internal", "False") == "True":
-                    order["internal_match"] = "True"
-                bids.append(order)
+            # Process buy orders
+            for order_json, price in ext_buy_orders:
+                order = json.loads(order_json)
                 
-        # Sort bids by price (descending) and time (ascending)
-        bids.sort(key=lambda x: (-float(x["price"]), float(x["timestamp"])))
-        
-        # Convert to full order objects and apply filters
-        asks = []
-        for order_id, _ in sell_orders:
-            order = self.redis.hgetall(f"order:{order_id}")
-            if order:
-                # Apply asset type filter
-                if asset_type and order.get("asset_type", "").lower() != asset_type.lower():
+                # Apply filters
+                if asset_type and order.get('asset_type') != asset_type:
                     continue
                     
-                # Apply symbol filter
-                if symbol and order.get("symbol", "") != symbol:
+                if symbol and order.get('symbol') != symbol:
                     continue
                     
-                # Flag internal orders for display purposes
-                if include_internal and order.get("internal", "False") == "True":
-                    order["internal_match"] = "True"
-                asks.append(order)
+                # Apply trader filter if specified
+                if trader_id and order.get('trader_id') != trader_id:
+                    continue
                 
-        # Sort asks by price (ascending) and time (ascending)
-        asks.sort(key=lambda x: (float(x["price"]), float(x["timestamp"])))
+                # Negate price (it's stored negatively for proper sorting)
+                order['price'] = -price
+                buy_orders.append(order)
+                
+                # Respect depth limit if not filtering by trader
+                if not trader_id and len(buy_orders) >= depth:
+                    break
+            
+            # Process sell orders
+            for order_json, price in ext_sell_orders:
+                order = json.loads(order_json)
+                
+                # Apply filters
+                if asset_type and order.get('asset_type') != asset_type:
+                    continue
+                    
+                if symbol and order.get('symbol') != symbol:
+                    continue
+                    
+                # Apply trader filter if specified
+                if trader_id and order.get('trader_id') != trader_id:
+                    continue
+                
+                order['price'] = price
+                sell_orders.append(order)
+                
+                # Respect depth limit if not filtering by trader
+                if not trader_id and len(sell_orders) >= depth:
+                    break
         
-        # Apply depth limit after filtering and sorting
-        return {"bids": bids[:depth], "asks": asks[:depth]}
+        # Include internal orders if requested
+        if include_internal or include_internal == "only":
+            # Get internal orders
+            int_buy_orders = self.redis.zrevrange(INTERNAL_BUY_ORDERS_KEY, 0, -1, withscores=True)
+            int_sell_orders = self.redis.zrange(INTERNAL_SELL_ORDERS_KEY, 0, -1, withscores=True)
+            
+            # Process internal buy orders
+            for order_json, price in int_buy_orders:
+                order = json.loads(order_json)
+                
+                # Apply filters
+                if asset_type and order.get('asset_type') != asset_type:
+                    continue
+                    
+                if symbol and order.get('symbol') != symbol:
+                    continue
+                    
+                # Apply trader filter if specified
+                if trader_id and order.get('trader_id') != trader_id:
+                    continue
+                
+                # Negate price (it's stored negatively for proper sorting)
+                order['price'] = -price
+                buy_orders.append(order)
+                
+                # Respect depth limit if not filtering by trader
+                if not trader_id and len(buy_orders) >= depth:
+                    break
+            
+            # Process internal sell orders
+            for order_json, price in int_sell_orders:
+                order = json.loads(order_json)
+                
+                # Apply filters
+                if asset_type and order.get('asset_type') != asset_type:
+                    continue
+                    
+                if symbol and order.get('symbol') != symbol:
+                    continue
+                    
+                # Apply trader filter if specified
+                if trader_id and order.get('trader_id') != trader_id:
+                    continue
+                
+                order['price'] = price
+                sell_orders.append(order)
+                
+                # Respect depth limit if not filtering by trader
+                if not trader_id and len(sell_orders) >= depth:
+                    break
+        
+        # Sort orders by price and time
+        buy_orders.sort(key=lambda x: (-float(x['price']), x['timestamp']))
+        sell_orders.sort(key=lambda x: (float(x['price']), x['timestamp']))
+        
+        return {
+            'bids': buy_orders[:depth],
+            'asks': sell_orders[:depth]
+        }
     
     def get_order(self, order_id: str) -> Optional[Dict[str, Any]]:
-        """Get details for a specific order."""
-        return self.redis.hgetall(f"order:{order_id}")
+        """Get an order by its ID."""
+        try:
+            # Try to get the order from Redis directly
+            redis_key = f"oes:order:{order_id}"
+            order_json = self.redis.get(redis_key)
+            
+            if order_json:
+                # Parse the order from JSON
+                order = json.loads(order_json)
+                
+                # Ensure both id fields exist for compatibility
+                if 'order_id' not in order and 'id' in order:
+                    order['order_id'] = order['id']
+                if 'id' not in order and 'order_id' in order:
+                    order['id'] = order['order_id']
+                
+                # Ensure internal_match field is properly set
+                if 'internal_match' not in order:
+                    # Check if internal field exists and use that value
+                    if 'internal' in order:
+                        order['internal_match'] = str(order['internal'])
+                    else:
+                        # Default to 'False' if neither field exists
+                        order['internal_match'] = 'False'
+                # Ensure internal_match is a string for consistency
+                else:
+                    order['internal_match'] = str(order['internal_match'])
+                    
+                return order
+            
+            # If not found, try the matching engine
+            order = self.match_engine.get_order(order_id)
+            
+            # If we got an order from the matching engine, ensure internal_match is present
+            if order and 'internal_match' not in order:
+                # Check if internal field exists and use that value
+                if 'internal' in order:
+                    order['internal_match'] = str(order['internal'])
+                else:
+                    # Default to 'False' if neither field exists
+                    order['internal_match'] = 'False'
+            # Ensure internal_match is a string for consistency
+            elif order and 'internal_match' in order:
+                order['internal_match'] = str(order['internal_match'])
+                
+            return order
+            
+        except Exception as e:
+            logger.error(f"Error getting order {order_id}: {e}")
+            return None
     
     def cancel_order(self, order_id: str) -> bool:
-        """Cancel an order by removing it from the order book."""
+        """
+        Cancel an open order.
+        
+        Args:
+            order_id: ID of the order to cancel
+            
+        Returns:
+            True if order was found and cancelled, False otherwise
+        """
+        # Find the order
         order = self.get_order(order_id)
+        
         if not order:
             return False
         
-        # Determine which order set to remove from based on type and internal flag
-        order_type = order.get("type", "").lower()
-        is_internal = order.get("internal", "False") == "True"
+        # Determine which order book it belongs to
+        is_internal = order.get('internal_match') == 'True'
+        is_buy = order.get('type', '').lower() == 'buy'
         
-        if order_type == "buy":
-            orders_key = INTERNAL_BUY_ORDERS_KEY if is_internal else BUY_ORDERS_KEY
-        else:  # sell
-            orders_key = INTERNAL_SELL_ORDERS_KEY if is_internal else SELL_ORDERS_KEY
+        if is_buy:
+            key = INTERNAL_BUY_ORDERS_KEY if is_internal else BUY_ORDERS_KEY
+        else:
+            key = INTERNAL_SELL_ORDERS_KEY if is_internal else SELL_ORDERS_KEY
         
-        try:
-            # Add cancel timestamp
-            order["cancel_time"] = str(time.time())
-            order["status"] = "cancelled"
+        # Remove from order book
+        result = self.redis.zrem(key, json.dumps(order))
+        
+        if result:
+            # Update order status
+            order['status'] = 'cancelled'
+            order['cancelled_at'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             
-            # Store a copy of the cancelled order
-            cancelled_key = f"cancelled:{order_id}"
-            
-            # Remove order in a transactional manner
-            pipeline = self.redis.pipeline()
-            # Save the cancelled order
-            pipeline.hmset(cancelled_key, order)
-            # Add to the cancelled orders set
-            pipeline.sadd("cancelled_orders", order_id)
-            # Remove from active orders
-            pipeline.zrem(orders_key, order_id)
-            pipeline.delete(f"order:{order_id}")
-            pipeline.execute()
-            return True
-        except Exception as e:
-            print(f"Error cancelling order: {e}")
-            return False
+            # Store cancelled order in history
+            if is_internal:
+                cancelled_key = f"oes:internal:orders:cancelled"
+            else:
+                cancelled_key = f"oes:orders:cancelled"
+                
+            self.redis.lpush(cancelled_key, json.dumps(order))
+        
+        return bool(result)
     
     def get_recent_trades(self, limit: int = 20, include_internal: bool = False) -> List[Dict[str, Any]]:
         """
-        Get recent trade history.
+        Get the most recent trades.
         
         Args:
             limit: Maximum number of trades to return
-            include_internal: Whether to include dark pool trades
+            include_internal: Whether to include internal trades
             
         Returns:
-            List of trade objects
+            List of recent trades
         """
-        trades = []
+        # Get external trades
+        ext_trades_json = self.redis.lrange(TRADES_KEY, 0, limit - 1)
+        trades = [json.loads(trade) for trade in ext_trades_json]
         
-        # Get external trade IDs
-        trade_ids = self.redis.lrange(TRADES_KEY, 0, limit - 1)
-        
-        # Get internal trade IDs if requested
+        # Include internal trades if requested
         if include_internal:
-            internal_trade_ids = self.redis.lrange(INTERNAL_TRADES_KEY, 0, limit - 1)
-            trade_ids.extend(internal_trade_ids)
+            int_trades_json = self.redis.lrange(INTERNAL_TRADES_KEY, 0, limit - 1)
+            int_trades = [json.loads(trade) for trade in int_trades_json]
             
-            # We might have more trades than the limit now, so take the most recent only
-            # This assumes timestamp ordering, which is valid for our use case
-            if len(trade_ids) > limit:
-                # Get full trades to sort by timestamp
-                all_trades = []
-                for trade_id in trade_ids:
-                    trade = self.redis.hgetall(f"trade:{trade_id}")
-                    if trade:
-                        all_trades.append(trade)
-                
-                # Sort by timestamp (descending) and take only up to the limit
-                all_trades.sort(key=lambda x: float(x.get("timestamp", 0)), reverse=True)
-                trades = all_trades[:limit]
-                return trades
+            # Combine and sort by timestamp
+            trades.extend(int_trades)
+            trades.sort(key=lambda x: x.get('timestamp', 0), reverse=True)
+            
+            # Respect limit
+            trades = trades[:limit]
         
-        # Get trade details
-        for trade_id in trade_ids:
-            trade = self.redis.hgetall(f"trade:{trade_id}")
-            if trade:
-                trades.append(trade)
-                
         return trades
     
-    def get_orders_by_status(self, status: Literal["open", "filled", "cancelled"]) -> List[Dict[str, Any]]:
+    def get_orders_by_status(
+        self, 
+        status: Literal["open", "filled", "cancelled"], 
+        internal_only: bool = False,
+        trader_id: Optional[str] = None,
+        symbol: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
         """
-        Get orders by status.
+        Get orders by status, with option to filter by trader and symbol.
         
         Args:
-            status: The status to filter by ("open", "filled", "cancelled")
+            status: Order status to filter by
+            internal_only: Whether to include only internal orders
+            trader_id: Optional ID of trader to filter by
+            symbol: Optional symbol to filter by
             
         Returns:
-            List of order objects
+            List of orders matching the criteria
         """
-        # Start latency measurement
-        start_time = time.time() * 1000  # Convert to milliseconds
+        result = []
         
-        try:
-            if status == "open":
-                # Open orders are in the active order books
-                orders = []
+        if status == "open":
+            # For open orders, check the active order books
+            if not internal_only:
+                # External books
+                ext_buy_orders = self.redis.zrevrange(BUY_ORDERS_KEY, 0, -1)
+                ext_sell_orders = self.redis.zrange(SELL_ORDERS_KEY, 0, -1)
                 
-                # Get external buy orders
-                buy_order_ids = self.redis.zrange(BUY_ORDERS_KEY, 0, -1)
-                for order_id in buy_order_ids:
-                    order = self.redis.hgetall(f"order:{order_id}")
-                    if order:
-                        orders.append(order)
-                
-                # Get external sell orders
-                sell_order_ids = self.redis.zrange(SELL_ORDERS_KEY, 0, -1)
-                for order_id in sell_order_ids:
-                    order = self.redis.hgetall(f"order:{order_id}")
-                    if order:
-                        orders.append(order)
-                        
-                # Get internal buy orders
-                internal_buy_order_ids = self.redis.zrange(INTERNAL_BUY_ORDERS_KEY, 0, -1)
-                for order_id in internal_buy_order_ids:
-                    order = self.redis.hgetall(f"order:{order_id}")
-                    if order:
-                        orders.append(order)
-                
-                # Get internal sell orders
-                internal_sell_order_ids = self.redis.zrange(INTERNAL_SELL_ORDERS_KEY, 0, -1)
-                for order_id in internal_sell_order_ids:
-                    order = self.redis.hgetall(f"order:{order_id}")
-                    if order:
-                        orders.append(order)
-                        
-                result = orders
-            elif status == "filled":
-                # Look up by trades to find filled orders
-                filled_orders = []
-                
-                # Get all trades (both external and internal)
-                trade_ids = self.redis.lrange(TRADES_KEY, 0, -1)
-                trade_ids.extend(self.redis.lrange(INTERNAL_TRADES_KEY, 0, -1))
-                
-                processed_order_ids = set()
-                
-                for trade_id in trade_ids:
-                    trade = self.redis.hgetall(f"trade:{trade_id}")
-                    if not trade:
+                for order_json in ext_buy_orders + ext_sell_orders:
+                    order = json.loads(order_json)
+                    
+                    # Apply trader filter if needed
+                    if trader_id and order.get('trader_id') != trader_id:
                         continue
-                        
-                    # Extract order IDs
-                    buy_order_id = trade.get("buy_order_id")
-                    sell_order_id = trade.get("sell_order_id")
                     
-                    # Check buy order
-                    if buy_order_id and buy_order_id not in processed_order_ids:
-                        buy_order = self.redis.hgetall(f"order:{buy_order_id}")
-                        if buy_order:
-                            # Mark as filled and add trade info
-                            buy_order["status"] = "filled"
-                            buy_order["fill_time"] = trade.get("timestamp", "0")
-                            buy_order["fill_price"] = trade.get("price", "0")
-                            filled_orders.append(buy_order)
-                            processed_order_ids.add(buy_order_id)
+                    # Apply symbol filter if needed
+                    if symbol and order.get('symbol') != symbol:
+                        continue
                     
-                    # Check sell order
-                    if sell_order_id and sell_order_id not in processed_order_ids:
-                        sell_order = self.redis.hgetall(f"order:{sell_order_id}")
-                        if sell_order:
-                            # Mark as filled and add trade info
-                            sell_order["status"] = "filled"
-                            sell_order["fill_time"] = trade.get("timestamp", "0")
-                            sell_order["fill_price"] = trade.get("price", "0")
-                            filled_orders.append(sell_order)
-                            processed_order_ids.add(sell_order_id)
+                    result.append(order)
+            
+            # Internal books
+            int_buy_orders = self.redis.zrevrange(INTERNAL_BUY_ORDERS_KEY, 0, -1)
+            int_sell_orders = self.redis.zrange(INTERNAL_SELL_ORDERS_KEY, 0, -1)
+            
+            for order_json in int_buy_orders + int_sell_orders:
+                order = json.loads(order_json)
                 
-                result = filled_orders
-            elif status == "cancelled":
-                # Get cancelled orders from the cancelled_orders set
-                cancelled_orders = []
+                # Apply trader filter if needed
+                if trader_id and order.get('trader_id') != trader_id:
+                    continue
                 
-                # Check if the set exists
-                if not self.redis.exists("cancelled_orders"):
-                    result = []
-                else:
-                    # Get all cancelled order IDs
-                    cancelled_order_ids = self.redis.smembers("cancelled_orders")
+                # Apply symbol filter if needed
+                if symbol and order.get('symbol') != symbol:
+                    continue
+                
+                result.append(order)
+        else:
+            # For filled and cancelled orders, check the history
+            if not internal_only:
+                # Check external history
+                ext_history_key = f"oes:orders:{status}"
+                ext_orders_json = self.redis.lrange(ext_history_key, 0, -1)
+                
+                for order_json in ext_orders_json:
+                    order = json.loads(order_json)
                     
-                    for order_id in cancelled_order_ids:
-                        order = self.redis.hgetall(f"cancelled:{order_id}")
-                        if order:
-                            cancelled_orders.append(order)
+                    # Apply trader filter if needed
+                    if trader_id and order.get('trader_id') != trader_id:
+                        continue
+                    
+                    # Apply symbol filter if needed
+                    if symbol and order.get('symbol') != symbol:
+                        continue
+                    
+                    result.append(order)
+            
+            # Check internal history
+            int_history_key = f"oes:internal:orders:{status}"
+            int_orders_json = self.redis.lrange(int_history_key, 0, -1)
+            
+            for order_json in int_orders_json:
+                order = json.loads(order_json)
                 
-                result = cancelled_orders
-            else:
-                result = []
-            
-            # End latency measurement and record it
-            end_time = time.time() * 1000
-            latency = round(end_time - start_time)
-            
-            # Store the latency measurement in Redis
-            try:
-                self.redis.lpush("orders_retrieval_latency", latency)
-                self.redis.ltrim("orders_retrieval_latency", 0, 49)  # Keep last 50 measurements
-            except Exception as e:
-                print(f"Error saving order retrieval latency: {e}")
-            
-            return result
-        except Exception as e:
-            print(f"Error in get_orders_by_status: {e}")
-            # End latency measurement even on error
-            end_time = time.time() * 1000
-            latency = round(end_time - start_time)
-            
-            # Store the error latency
-            try:
-                self.redis.lpush("orders_retrieval_error_latency", latency)
-                self.redis.ltrim("orders_retrieval_error_latency", 0, 19)  # Keep last 20 error measurements
-            except:
-                pass
+                # Apply trader filter if needed
+                if trader_id and order.get('trader_id') != trader_id:
+                    continue
                 
-            return []
+                # Apply symbol filter if needed
+                if symbol and order.get('symbol') != symbol:
+                    continue
+                
+                result.append(order)
+        
+        # Sort by timestamp
+        result.sort(key=lambda x: x.get('timestamp', 0), reverse=True)
+        
+        return result
+    
+    def get_order_details(self, order_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Get detailed information about a specific order.
+        
+        Args:
+            order_id: ID of the order to retrieve
+            
+        Returns:
+            Dictionary with order details or None if not found
+        """
+        order = self.get_order(order_id)
+        
+        if not order:
+            # Check in history for filled or cancelled orders
+            for status in ["filled", "cancelled"]:
+                for prefix in ["oes", "oes:internal"]:
+                    history_key = f"{prefix}:orders:{status}"
+                    orders_json = self.redis.lrange(history_key, 0, -1)
+                    
+                    for order_json in orders_json:
+                        order_data = json.loads(order_json)
+                        if order_data.get('id') == order_id:
+                            return order_data
+        
+        return order
+
+def seed_historical_data():
+    """
+    Seed the order book with initial market data and set up continuous updates.
+    """
+    try:
+        from .redis_client import redis_client
+        import time
+        import random
+        import math
+        import asyncio
+        from datetime import datetime
+
+        # Sample tickers and their price ranges with volatility settings
+        tickers = {
+            'AAPL': {'min': 170, 'max': 180, 'volatility': 0.002, 'trend': 0},
+            'GOOGL': {'min': 140, 'max': 150, 'volatility': 0.003, 'trend': 0},
+            'MSFT': {'min': 380, 'max': 390, 'volatility': 0.0015, 'trend': 0},
+            'AMZN': {'min': 175, 'max': 185, 'volatility': 0.0025, 'trend': 0},
+            'TSLA': {'min': 180, 'max': 190, 'volatility': 0.004, 'trend': 0}
+        }
+
+        def generate_orders(base_price, ticker_data):
+            """Generate realistic order book entries around the base price"""
+            current_time = int(time.time())
+            orders = {'bids': [], 'asks': []}
+            
+            # Generate spread
+            spread = base_price * 0.0005  # 0.05% spread
+            bid_start = base_price - spread
+            ask_start = base_price + spread
+            
+            # Generate bids (buy orders)
+            for i in range(15):
+                price = round(bid_start * (1 - 0.001 * i), 2)  # 0.1% price steps
+                quantity = random.randint(10, 1000) * 10
+                orders['bids'].append((price, quantity, current_time-i))
+            
+            # Generate asks (sell orders)
+            for i in range(15):
+                price = round(ask_start * (1 + 0.001 * i), 2)  # 0.1% price steps
+                quantity = random.randint(10, 1000) * 10
+                orders['asks'].append((price, quantity, current_time-i))
+            
+            return orders
+
+        # Initial seeding of order books
+        for ticker, data in tickers.items():
+            # Set initial price
+            mid_price = (data['min'] + data['max']) / 2
+            redis_client.set(f"price:{ticker}", str(mid_price))
+            
+            # Generate and store initial orders
+            orders = generate_orders(mid_price, data)
+            
+            # Update order books
+            redis_client.delete(f"order_book:{ticker}:bids")
+            redis_client.delete(f"order_book:{ticker}:asks")
+            
+            for price, quantity, timestamp in orders['bids']:
+                redis_client.zadd(
+                    f"order_book:{ticker}:bids",
+                    {f"{price}:{quantity}:{timestamp}": price}
+                )
+            
+            for price, quantity, timestamp in orders['asks']:
+                redis_client.zadd(
+                    f"order_book:{ticker}:asks",
+                    {f"{price}:{quantity}:{timestamp}": price}
+                )
+
+        async def update_prices():
+            """Continuously update prices based on random walks with mean reversion"""
+            while True:
+                for ticker, data in tickers.items():
+                    # Update trend with mean reversion
+                    data['trend'] = data['trend'] * 0.95 + random.gauss(0, data['volatility'])
+                    
+                    # Calculate new base price with bounds
+                    mid_price = (data['min'] + data['max']) / 2
+                    current_price = redis_client.get(f"price:{ticker}")
+                    
+                    if current_price is None:
+                        current_price = mid_price
+                    else:
+                        current_price = float(current_price)
+                    
+                    # Apply trend and random walk
+                    new_price = current_price * (1 + data['trend'] + random.gauss(0, data['volatility']))
+                    
+                    # Apply mean reversion
+                    if new_price < data['min']:
+                        new_price = data['min'] * (1 + random.random() * 0.01)
+                    elif new_price > data['max']:
+                        new_price = data['max'] * (1 - random.random() * 0.01)
+                    
+                    # Store new price
+                    redis_client.set(f"price:{ticker}", str(new_price))
+                    
+                    # Generate and store new orders
+                    orders = generate_orders(new_price, data)
+                    
+                    # Update order books
+                    redis_client.delete(f"order_book:{ticker}:bids")
+                    redis_client.delete(f"order_book:{ticker}:asks")
+                    
+                    for price, quantity, timestamp in orders['bids']:
+                        redis_client.zadd(
+                            f"order_book:{ticker}:bids",
+                            {f"{price}:{quantity}:{timestamp}": price}
+                        )
+                    
+                    for price, quantity, timestamp in orders['asks']:
+                        redis_client.zadd(
+                            f"order_book:{ticker}:asks",
+                            {f"{price}:{quantity}:{timestamp}": price}
+                        )
+                
+                # Small delay between updates
+                await asyncio.sleep(0.1)  # Update every 100ms
+
+        # Get or create event loop
+        try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+
+        # Start the continuous update task
+        loop.create_task(update_prices())
+        
+        return True
+    except Exception as e:
+        print(f"Error seeding historical data: {str(e)}")
+        return False
+
+def seed_internal_book():
+    """
+    Initialize the internal order book structure without seeding any orders.
+    This ensures the internal order book exists but starts empty.
+    """
+    try:
+        from .redis_client import redis_client
+        logger.info("Initializing empty internal order book")
+        
+        # Create empty internal order books for each ticker
+        for ticker in ['AAPL', 'GOOGL', 'MSFT', 'AMZN', 'TSLA']:
+            # Initialize empty bid/ask books
+            redis_client.delete(f"internal_book:{ticker}:bids")
+            redis_client.delete(f"internal_book:{ticker}:asks")
+        
+        logger.info("Internal order book initialized successfully (empty)")
+        return True
+        
+    except Exception as e:
+        logger.error(f"Error initializing internal order book: {e}")
+        return False
 
 # Create a singleton instance
 order_book = OrderBook() 

@@ -1,0 +1,931 @@
+/* Order Book Styles */
+:root {
+    --primary-color: #4CAF50;
+    --danger-color: #F44336;
+    --success-color: #4CAF50;
+    --text-dark: #E0E0E0;
+    --text-muted: #9E9E9E;
+    --card-dark: #1E1E1E;
+    --border-dark: #333333;
+    --border-dark-light: #444444;
+    --input-bg: #2D2D2D;
+}
+
+/* Order Book Layout */
+.order-book {
+    background: var(--card-dark);
+    border-radius: 8px;
+    padding: 1rem;
+    transition: all 0.3s ease;
+    height: calc(100vh - 100px);
+    margin: 10px;
+}
+
+.order-book.expanded {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 100vh;
+    margin: 0;
+    z-index: 1000;
+    border-radius: 0;
+}
+
+.book-content {
+    display: flex;
+    height: 100%;
+    gap: 1rem;
+}
+
+.book-side {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.book-side-header {
+    padding: 1rem;
+    background: var(--card-dark);
+    border-bottom: 1px solid var(--border-dark);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.expand-button {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    padding: 8px;
+    background: var(--card-dark);
+    border: 1px solid var(--border-dark);
+    color: var(--text-dark);
+    cursor: pointer;
+    border-radius: 4px;
+    z-index: 1001;
+}
+
+.expand-button:hover {
+    background: var(--border-dark);
+}
+
+/* Table Styles */
+.book-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 0;
+    height: 100%;
+    overflow-y: auto;
+    display: block;
+}
+
+.book-table thead {
+    position: sticky;
+    top: 0;
+    background: var(--card-dark);
+    z-index: 1;
+}
+
+.book-table th,
+.book-table td {
+    padding: 0.75rem;
+    text-align: right;
+    border-bottom: 1px solid var(--border-dark-light);
+    min-width: 100px;
+}
+
+.book-table th:first-child,
+.book-table td:first-child {
+    text-align: left;
+    position: sticky;
+    left: 0;
+    background: var(--card-dark);
+}
+
+/* Price animation */
+.price-cell {
+    transition: background-color 0.3s ease;
+}
+
+.price-up {
+    background-color: rgba(76, 175, 80, 0.2) !important;
+}
+
+.price-down {
+    background-color: rgba(244, 67, 54, 0.2) !important;
+}
+
+/* Scrollbar styling */
+.book-table::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+.book-table::-webkit-scrollbar-track {
+    background: var(--card-dark);
+}
+
+.book-table::-webkit-scrollbar-thumb {
+    background: var(--border-dark);
+    border-radius: 4px;
+}
+
+.book-table::-webkit-scrollbar-thumb:hover {
+    background: var(--border-dark-light);
+}
+
+/* Order Colors */
+.bids-body tr {
+    color: var(--success-color);
+}
+
+.asks-body tr {
+    color: var(--danger-color);
+}
+
+/* Button Styles */
+.edit-btn, .save-btn {
+    padding: 0.5rem 1rem;
+    background: var(--primary-color);
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.cancel-btn {
+    padding: 0.5rem 1rem;
+    background: var(--card-dark);
+    color: var(--text-dark);
+    border: 1px solid var(--border-dark);
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+/* Input Styles */
+.symbol-input {
+    width: 200px;
+    padding: 0.5rem;
+    font-size: 1rem;
+    border: 1px solid var(--border-dark);
+    border-radius: 4px;
+    background: var(--input-bg);
+    color: var(--text-dark);
+}
+
+/* Status Messages */
+.status-message {
+    margin-top: 1rem;
+    padding: 0.75rem;
+    border-radius: 4px;
+}
+
+.success-message {
+    background-color: rgba(76, 175, 80, 0.1);
+    color: var(--success-color);
+}
+
+.error-message {
+    background-color: rgba(244, 67, 54, 0.1);
+    color: var(--danger-color);
+}
+
+/* Modal Styles */
+.modal {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(0, 0, 0, 0.7);
+    z-index: 100;
+}
+
+.modal-container {
+    background-color: var(--card-dark);
+    border: 1px solid var(--border-dark);
+    border-radius: 8px;
+    width: 90%;
+    max-width: 500px;
+    position: relative;
+    margin: 10% auto;
+}
+
+.modal-content {
+    padding: 1.5rem;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+    .order-books-container {
+        grid-template-columns: 1fr;
+    }
+    
+    .symbol-input {
+        width: 100%;
+    }
+}
+
+/* Order Book Styling */
+.order-book-panel {
+    margin-bottom: 20px;
+    background-color: var(--bg-secondary);
+    border-radius: 6px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+    overflow: hidden;
+}
+
+.order-book-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 15px;
+    background-color: #e9ecef;
+    border-bottom: 1px solid #dee2e6;
+}
+
+.book-title {
+    font-weight: bold;
+    font-size: 16px;
+    color: #343a40;
+}
+
+.book-timestamp {
+    font-size: 14px;
+    color: #6c757d;
+}
+
+.order-book-content {
+    display: flex;
+    width: 100%;
+}
+
+.book-column {
+    flex: 1;
+    border-right: 1px solid #dee2e6;
+}
+
+.book-column:last-child {
+    border-right: none;
+}
+
+.column-header {
+    padding: 8px 10px;
+    font-weight: bold;
+    background-color: #e9ecef;
+    text-align: center;
+    border-bottom: 1px solid #dee2e6;
+}
+
+.my-bids {
+    color: #28a745;
+}
+
+.my-asks {
+    color: #dc3545;
+}
+
+.book-table-header {
+    display: flex;
+    padding: 8px 10px;
+    background-color: #f1f3f5;
+    border-bottom: 1px solid #dee2e6;
+    font-weight: bold;
+    font-size: 14px;
+}
+
+.book-entries {
+    overflow-y: auto;
+    max-height: 300px;
+}
+
+.book-row {
+    display: flex;
+    padding: 8px 10px;
+    border-bottom: 1px solid #dee2e6;
+    transition: background-color 0.2s;
+}
+
+.book-row:last-child {
+    border-bottom: none;
+}
+
+.book-row:hover {
+    background-color: rgba(0,0,0,0.05);
+}
+
+.book-row.bid {
+    color: #28a745;
+}
+
+.book-row.ask {
+    color: #dc3545;
+}
+
+.book-row.empty {
+    color: #6c757d;
+    text-align: center;
+    padding: 15px;
+    font-style: italic;
+}
+
+.book-cell {
+    flex: 1;
+    padding: 0 5px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.price {
+    font-weight: bold;
+}
+
+.price-header, .qty-header, .time-header, .symbol-header {
+    color: #495057;
+}
+
+/* My Orders Styling */
+.orders-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 15px;
+    background-color: #e9ecef;
+    border-radius: 6px 6px 0 0;
+    border: 1px solid #dee2e6;
+}
+
+.orders-title {
+    font-weight: bold;
+    font-size: 16px;
+    color: #343a40;
+}
+
+.orders-timestamp {
+    font-size: 14px;
+    color: #6c757d;
+}
+
+.orders-table {
+    width: 100%;
+    border: 1px solid #dee2e6;
+    border-top: none;
+    border-radius: 0 0 6px 6px;
+    overflow: hidden;
+}
+
+.order-header {
+    display: flex;
+    background-color: #f1f3f5;
+    padding: 10px;
+    font-weight: bold;
+    border-bottom: 1px solid #dee2e6;
+}
+
+.order-row {
+    display: flex;
+    padding: 10px;
+    border-bottom: 1px solid #dee2e6;
+    transition: background-color 0.2s;
+}
+
+.order-row:last-child {
+    border-bottom: none;
+}
+
+.order-row:hover {
+    background-color: rgba(0,0,0,0.05);
+}
+
+.order-row.bid {
+    background-color: rgba(40, 167, 69, 0.05);
+}
+
+.order-row.ask {
+    background-color: rgba(220, 53, 69, 0.05);
+}
+
+.order-row.empty {
+    color: #6c757d;
+    text-align: center;
+    padding: 15px;
+    font-style: italic;
+}
+
+.order-cell {
+    flex: 1;
+    padding: 0 5px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.order-cell.type {
+    font-weight: bold;
+}
+
+.order-cell.bid .type {
+    color: #28a745;
+}
+
+.order-cell.ask .type {
+    color: #dc3545;
+}
+
+.cancel-btn:hover {
+    background-color: #c82333;
+}
+
+/* Tabs styling improvement */
+.tabs {
+    display: flex;
+    margin-bottom: 10px;
+    border-bottom: 1px solid #dee2e6;
+}
+
+.tab-btn {
+    padding: 8px 15px;
+    background-color: transparent;
+    border: 1px solid transparent;
+    border-bottom: none;
+    border-radius: 4px 4px 0 0;
+    margin-right: 5px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.tab-btn:hover {
+    background-color: rgba(0,0,0,0.05);
+}
+
+.tab-btn.active {
+    background-color: #f8f9fa;
+    border-color: #dee2e6;
+    border-bottom-color: #f8f9fa;
+    margin-bottom: -1px;
+    font-weight: bold;
+}
+
+/* Add these styles to orderbook.css */
+
+.order-books-container {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    grid-gap: 20px;
+    margin-bottom: 20px;
+    width: 100%;
+}
+
+.order-book-panel {
+    display: flex;
+    flex-direction: column;
+    min-height: 400px;
+}
+
+.order-book-panel h2 {
+    margin-bottom: 10px;
+    color: var(--text-color);
+    font-size: 1.2rem;
+}
+
+.order-book {
+    flex: 1;
+    overflow: hidden;
+    position: relative;
+}
+
+/* Book container styles */
+.book-container {
+    display: flex;
+    width: 100%;
+    height: 100%;
+    gap: 10px;
+}
+
+/* Table styles */
+.book-table {
+    flex: 1;
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9rem;
+}
+
+.book-table th {
+    padding: 8px;
+    text-align: center;
+    background-color: var(--bg-secondary);
+    color: var(--text-color);
+    font-weight: 600;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.book-side-header {
+    background-color: var(--bg-tertiary) !important;
+    font-size: 1rem;
+}
+
+.book-table td {
+    padding: 6px 8px;
+    text-align: right;
+    border-bottom: 1px solid var(--border-color-light);
+}
+
+/* Bid prices (green) */
+.external-bids-body tr td:first-child,
+.internal-bids-body tr td:first-child {
+    color: var(--buy-color);
+    font-weight: 600;
+}
+
+/* Ask prices (red) */
+.external-asks-body tr td:first-child,
+.internal-asks-body tr td:first-child {
+    color: var(--sell-color);
+    font-weight: 600;
+}
+
+/* Hover effect on rows */
+.book-table tbody tr:hover {
+    background-color: var(--hover-color);
+}
+
+/* No orders message */
+.book-table tbody tr td[colspan] {
+    text-align: center;
+    padding: 20px;
+    color: var(--text-muted);
+}
+
+/* Orders section (below order books) */
+.panel {
+    margin-top: 20px;
+    min-height: 300px;
+}
+
+/* Styling for the order tables */
+.orders-list {
+    width: 100%;
+    overflow-x: auto;
+}
+
+.orders-list table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9rem;
+}
+
+.orders-list th {
+    padding: 10px;
+    text-align: left;
+    background-color: var(--bg-secondary);
+    color: var(--text-color);
+    font-weight: 600;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.orders-list td {
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--border-color-light);
+}
+
+.orders-list tr:hover {
+    background-color: var(--hover-color);
+}
+
+/* Status colors */
+.order-status.open {
+    color: var(--neutral-color);
+}
+
+.order-status.filled {
+    color: var(--buy-color);
+}
+
+.order-status.cancelled {
+    color: var(--sell-color);
+}
+
+/* Order type colors */
+.order-type.buy {
+    color: var(--buy-color);
+}
+
+.order-type.sell {
+    color: var(--sell-color);
+}
+
+/* Action buttons */
+.order-actions {
+    display: flex;
+    gap: 5px;
+}
+
+.order-actions button {
+    padding: 3px 8px;
+    border-radius: 4px;
+    font-size: 0.8rem;
+    cursor: pointer;
+    background-color: var(--bg-button);
+    color: var(--text-color);
+    border: 1px solid var(--border-color);
+}
+
+.order-actions button:hover {
+    background-color: var(--bg-button-hover);
+}
+
+.order-actions .edit-btn {
+    background-color: var(--bg-neutral);
+}
+
+.order-actions .cancel-btn {
+    background-color: var(--bg-negative);
+}
+
+/* No orders message */
+.no-orders-message {
+    padding: 30px;
+    text-align: center;
+    color: var(--text-muted);
+    font-style: italic;
+}
+
+/* Order details modal */
+.order-details {
+    margin-bottom: 20px;
+}
+
+.order-details .detail-row {
+    display: flex;
+    margin-bottom: 10px;
+}
+
+.order-details .detail-label {
+    flex: 1;
+    font-weight: 600;
+    color: var(--text-muted);
+}
+
+.order-details .detail-value {
+    flex: 2;
+    text-align: right;
+}
+
+/* Message styles */
+.message {
+    padding: 10px;
+    margin: 10px 0;
+    border-radius: 4px;
+    text-align: center;
+    display: none;
+}
+
+.message.success {
+    display: block;
+    background-color: rgba(76, 175, 80, 0.1);
+    color: #4CAF50;
+    border: 1px solid #4CAF50;
+}
+
+.message.error {
+    display: block;
+    background-color: rgba(244, 67, 54, 0.1);
+    color: #F44336;
+    border: 1px solid #F44336;
+}
+
+/* Edit form */
+.edit-form-group {
+    margin-bottom: 15px;
+}
+
+.edit-form-group label {
+    display: block;
+    margin-bottom: 5px;
+    font-weight: 600;
+}
+
+.edit-form-group input {
+    width: 100%;
+    padding: 8px;
+    border-radius: 4px;
+    border: 1px solid var(--border-color);
+    background-color: var(--bg-input);
+    color: var(--text-color);
+}
+
+.edit-form-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    margin-top: 20px;
+}
+
+.edit-form-actions button {
+    padding: 8px 15px;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.edit-form-actions .cancel-btn {
+    background-color: var(--bg-button);
+    color: var(--text-color);
+    border: 1px solid var(--border-color);
+}
+
+.edit-form-actions .submit-btn {
+    background-color: var(--primary-color);
+    color: white;
+    border: none;
+}
+
+/* Status message in the edit modal */
+.edit-status-message {
+    margin-top: 15px;
+    padding: 10px;
+    border-radius: 4px;
+    text-align: center;
+}
+
+.edit-status-message.success {
+    background-color: var(--bg-positive);
+    color: var(--text-color);
+}
+
+.edit-status-message.error {
+    background-color: var(--bg-negative);
+    color: var(--text-color);
+}
+
+.selected-ticker-display {
+    font-size: 16px;
+    font-weight: bold;
+    margin-top: 10px;
+    padding: 8px 12px;
+    background-color: rgba(0,0,0,0.05);
+    border-radius: 4px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    border: 1px solid #dee2e6;
+}
+
+#selected-ticker {
+    color: #007bff;
+    margin-left: 5px;
+}
+
+.book-instructions {
+    color: #6c757d;
+    font-style: italic;
+    text-align: center;
+    padding: 30px 20px;
+    background-color: rgba(0,0,0,0.02);
+    border-radius: 4px;
+    margin: 10px;
+}
+
+@media (max-width: 992px) {
+    .order-books-container {
+        flex-direction: column;
+    }
+}
+
+/* Notification styles */
+.notification {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    padding: 12px 20px;
+    border-radius: 4px;
+    z-index: 1000;
+    font-size: 14px;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+    animation: slide-in 0.3s ease-out forwards;
+}
+
+@keyframes slide-in {
+    from {
+        transform: translateX(100%);
+        opacity: 0;
+    }
+    to {
+        transform: translateX(0);
+        opacity: 1;
+    }
+}
+
+.notification.success {
+    background-color: #4CAF50;
+    color: white;
+    border: 1px solid #43A047;
+}
+
+.notification.error {
+    background-color: #F44336;
+    color: white;
+    border: 1px solid #E53935;
+}
+
+/* Order Book Styling */
+.order-book-panel {
+    margin-bottom: 20px;
+    background-color: var(--bg-secondary);
+    border-radius: 6px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+    overflow: hidden;
+}
+
+.book-table tbody tr {
+    transition: all 0.3s ease-in-out;
+    opacity: 1;
+}
+
+.book-table tbody tr.new-row {
+    opacity: 0;
+    transform: translateY(-5px);
+}
+
+.book-table tbody tr.fade-out {
+    opacity: 0;
+    transform: translateY(5px);
+}
+
+.book-table tbody tr td {
+    transition: background-color 0.3s ease-in-out, color 0.3s ease-in-out;
+}
+
+/* Price change animations */
+.price-up td:first-child {
+    animation: priceUp 0.5s ease-out;
+}
+
+.price-down td:first-child {
+    animation: priceDown 0.5s ease-out;
+}
+
+@keyframes priceUp {
+    0% { background-color: rgba(40, 167, 69, 0); }
+    50% { background-color: rgba(40, 167, 69, 0.2); }
+    100% { background-color: rgba(40, 167, 69, 0); }
+}
+
+@keyframes priceDown {
+    0% { background-color: rgba(220, 53, 69, 0); }
+    50% { background-color: rgba(220, 53, 69, 0.2); }
+    100% { background-color: rgba(220, 53, 69, 0); }
+}
+
+/* Row animations */
+.book-table tbody tr {
+    animation: rowFadeIn 0.3s ease-out forwards;
+}
+
+@keyframes rowFadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(-5px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* Preserve table layout during updates */
+.book-table {
+    table-layout: fixed;
+    width: 100%;
+}
+
+.book-table td {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* Ensure consistent column widths */
+.book-table th:nth-child(1),
+.book-table td:nth-child(1) {
+    width: 25%;
+}
+
+.book-table th:nth-child(2),
+.book-table td:nth-child(2) {
+    width: 25%;
+}
+
+.book-table th:nth-child(3),
+.book-table td:nth-child(3) {
+    width: 25%;
+}
+
+.book-table th:nth-child(4),
+.book-table td:nth-child(4) {
+    width: 25%;
+} 

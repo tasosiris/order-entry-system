@@ -202,14 +202,21 @@ class Autocomplete {
     }
 }
 
-// Define symbol lists for different asset types
+// Fetch tickers from API
+async function fetchTickers() {
+    try {
+        const response = await fetch('/api/market/tickers');
+        const data = await response.json();
+        return data.tickers || [];
+    } catch (error) {
+        console.error('Error fetching tickers:', error);
+        return [];
+    }
+}
+
+// Define symbol lists for different asset types - these will be populated dynamically
 const SYMBOL_LISTS = {
-    stocks: [
-        'AAPL', 'MSFT', 'GOOGL', 'AMZN', 'META', 'TSLA', 'NVDA', 'NFLX', 
-        'ADBE', 'PYPL', 'INTC', 'CSCO', 'CMCSA', 'PEP', 'AMD', 'QCOM',
-        'TXN', 'CRM', 'AVGO', 'GILD', 'MDLZ', 'SBUX', 'CHTR', 'MU',
-        'INTU', 'ISRG', 'VRTX', 'FISV', 'BKNG', 'REGN', 'ADP', 'ATVI'
-    ],
+    stocks: [],
     futures: [
         'ES', 'NQ', 'YM', 'RTY', 'CL', 'GC', 'SI', 'HG', 'ZB', 'ZN',
         'ZF', 'ZT', '6E', '6J', '6B', '6A', '6C', 'KC', 'CT', 'SB',
@@ -226,6 +233,16 @@ const SYMBOL_LISTS = {
         'AAVE-USD', 'SOL-USD', 'AVAX-USD', 'MATIC-USD', 'COMP-USD', 'SNX-USD'
     ]
 };
+
+// Initialize tickers
+(async function() {
+    try {
+        SYMBOL_LISTS.stocks = await fetchTickers();
+        console.log(`Loaded ${SYMBOL_LISTS.stocks.length} stock tickers`);
+    } catch (error) {
+        console.error('Failed to initialize tickers:', error);
+    }
+})();
 
 // Export the Autocomplete class and symbol lists
 export { Autocomplete, SYMBOL_LISTS }; 

@@ -1,7 +1,9 @@
-from .orders import router as orders_router
-from .orderbook import router as orderbook_router
-from .darkpool import router as darkpool_router
-from .market import router as market_router
-from .positions import router as positions_router
+"""
+API routers for the Order Entry System.
+"""
 
-__all__ = ["orders_router", "orderbook_router", "darkpool_router", "market_router", "positions_router"]
+from .orders import router as orders_router
+from .accounts_router import accounts_router
+from .risk_router import risk_router
+
+__all__ = ["orders_router", "accounts_router", "risk_router"]
